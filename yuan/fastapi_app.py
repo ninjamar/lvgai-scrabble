@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 # Import game logic from ram directory (adjust the path if necessary)
-from ram.scrabble import Board, Player, PWordBank, Tile, MLocation, Move  
+from ram.scrabble import Board, Player, PWordBank, Tile, MLocation, Move
 
 app = FastAPI(title="Scrabble Board API", version="0.2.0")
 
@@ -19,6 +19,7 @@ class Location(BaseModel):
     letter: str
     x: int
     y: int
+
 
 class MakeMoveRequest(BaseModel):
     locations: List[Location]
@@ -54,7 +55,9 @@ def make_move(req: MakeMoveRequest):
     """Apply a move consisting of multiple tile placements."""
     board = _assert_board_exists()
     try:
-        move_locs = [MLocation(letter=loc.letter, x=loc.x, y=loc.y) for loc in req.locations]
+        move_locs = [
+            MLocation(letter=loc.letter, x=loc.x, y=loc.y) for loc in req.locations
+        ]
         move = Move(locations=move_locs)
         board.make_move(move)
     except Exception as exc:
@@ -66,7 +69,16 @@ def make_move(req: MakeMoveRequest):
 def get_board():
     board = _assert_board_exists()
     # Convert Tile objects to dict with letter & multiplier for ease of front-end use.
-    simple_board = [[{"letter": getattr(cell, "letter", ""), "mult": getattr(cell, "multiplier", 1)} for cell in row] for row in board.board]
+    simple_board = [
+        [
+            {
+                "letter": getattr(cell, "letter", ""),
+                "mult": getattr(cell, "multiplier", 1),
+            }
+            for cell in row
+        ]
+        for row in board.board
+    ]
     return {"board": simple_board, "turn": board.turn}
 
 
@@ -91,7 +103,6 @@ def get_rack(player: str):
     return {"player": player, "rack": rack}
 
 
-
 def switch_turn():
     """Manually advance to the next player's turn."""
     game = _assert_game_exists()
@@ -104,7 +115,9 @@ def status():
     board = _assert_board_exists()
     return {
         "turn": board.turn,
-        "current_player_index": board.turn % len(board.players) if board.players else None,
+        "current_player_index": (
+            board.turn % len(board.players) if board.players else None
+        ),
     }
 
 
@@ -113,6 +126,8 @@ def end_game():
     global _board
     _board = None
     return {"message": "Game reset"}
+
+
 def end_game():
     """End the current game and return final scores."""
     game = _assert_game_exists()

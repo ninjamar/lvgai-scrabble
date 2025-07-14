@@ -34,112 +34,18 @@
 ^y
 """
 
-"""
-Great—this is your **best/clearest version so far**!
-Here are the validation bullets (no suggestions, no code—just what’s missing, broken, or unclear):
-
----
-
-## **What Needs To Be Added / Is Missing**
-
-* **Tile Bag Logic:**
-
-  * No single “tile bag” representing all available tiles (i.e., Scrabble’s set of 100 tiles).
-  * `all_tiles` is a field of `WordBank`, but each player would have their own, so not shared or depleted as in real Scrabble.
-  * Tiles can still be “duplicated” in player hands.
-
-* **Player Hand Replenishment:**
-
-  * After making a move, hands are not refilled (should always be 7 if possible).
-  * No check to prevent overfilling a hand (drawing more than 7).
-
-* **Board Initialization:**
-
-  * In `initialize_board`, `Tile(x=cell, y=row)` is missing required arguments for `letter` (should default to `None`/empty) and `multiplier` (defaults to 0, but in real Scrabble, should set proper special squares).
-  * Board multipliers (DL, TL, DW, TW) are **not initialized** (all are zero).
-
-* **Move Validation:**
-
-  * No check that all placed tiles are *contiguous* in the row or column (e.g., can’t place scattered tiles in one turn).
-  * No check that placed tiles connect to existing words (after first move).
-  * No enforcement of minimum two-letter word.
-  * Only checks first letter for center square on first move (should check that the whole move passes through center).
-
-* **Word Extraction and Validation:**
-
-  * `validate_words()` attempts to validate every row and every column as a single word, even if there are gaps.
-    (In real Scrabble, must check all contiguous sequences of 2+ letters formed this turn and that all new words are valid.)
-
-* **Score Calculation:**
-
-  * No scoring system at all—no point calculation for plays.
-
-* **Game End and Flow:**
-
-  * No handling for game-over, passing, or empty bag.
-  * No game state display.
-
-* **Wildcards/Blank Tiles:**
-
-  * No handling for blank (wild) tiles.
-
----
-
-## **What Doesn’t Work / Is Broken**
-
-* **Default Factory Use:**
-
-  * `board = dataclasses.field(default_factory=lambda: Board.initialize_board())`
-
-    * This will call `initialize_board()` at class creation time (not each instance).
-    * Should be `default_factory=Board.initialize_board` (no parens) or wrapped in a lambda: `lambda: Board.initialize_board()`.
-* **Word List Default Factory:**
-
-  * `word_list = dataclasses.field(default_factory=WordList)`
-
-    * Will error because `WordList` requires `word_list` argument. Should be something like `lambda: WordList([])` or similar.
-* **Location Equality:**
-
-  * Removing/looking up tiles in `WordBank` (by object identity) may not work as intended if tiles are not exactly the same objects as in hand (may fail if two `Tile('A', ...)` objects with same letter/x/y but are different Python objects).
-* **Tile Placement:**
-
-  * Board is updated by replacing references to passed-in `Tile` objects; can cause confusion if re-used in different places (mutation risk).
-* **Checking for Existing Tile:**
-
-  * You correctly check if `letter is not None`, but if a cell was initialized with `letter = ""` or not set, could have odd behavior.
-* **Word Validation:**
-
-  * Only checks if `col.letter != ""`, but `letter` could be `None` (from default) or `""`—be explicit on what counts as empty.
-
----
-
-## **Unclear / Needs Clarification**
-
-* **How the tile bag is initialized, shared, or depleted between players.**
-* **How multipliers are to be represented (since all are zero now).**
-* **How you intend to distinguish between a board `Tile` and a hand `Tile` (same class, but are they conceptually different?).**
-* **How the word list is loaded and injected (class method to load, but `WordList` instances need a list).**
-* **No display/print for game state—so not possible to check what’s on the board or in hands.**
-
----
-
-## **Summary**
-
-* **Tile and move validation** is improved from previous versions but still missing key Scrabble logic.
-* **Game mechanics** (tile bag, scoring, contiguity, hand refills) not implemented.
-* **Code structure** for board/hand/wordbank/tile still needs tightening up for correct gameplay.
-
----
-
-**You’re definitely converging on something workable.
-Let me know which area you want to clarify, learn, or implement next!**
-
-"""
-
+import json
 import dataclasses
+import redis.asyncio as aredis
 import copy
 import random
+
 from typing import ClassVar
+
+
+rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
+REDIS_KEY = "scrabble:game_state"
+ROOT_PATH = "."
 
 # https://stackoverflow.com/q/8421337
 rotate_list = lambda x: list(zip(*x[::-1]))
@@ -173,26 +79,68 @@ class Tile:
 
     is_blank: bool
 
+    def __eq__(self, other):
+        if not isinstance(other, Tile):
+            return False
+        return (self.letter, self.x, self.y, self.is_blank) == (
+            other.letter,
+            other.x,
+            other.y,
+            other.is_blank,
+        )
+
+    def __hash__(self):
+        return hash((self.letter, self.x, self.y, self.is_blank))
+
+    @classmethod
+    def from_another(cls, obj: "Tile"):
+        return from_dict(cls, dataclasses.asdict(obj))
+
+
 def create_tile_bag():
     # TODO: Points
     # {letter: (count, value)}
     tile_counts = {
-        'E': (12, 1), 'A': (9, 1), 'I': (9, 1), 'O': (8, 1),
-        'N': (6, 1), 'R': (6, 1), 'T': (6, 1), 'L': (4, 1),
-        'S': (4, 1), 'U': (4, 1), 'D': (4, 2), 'G': (3, 2),
-        'B': (2, 3), 'C': (2, 3), 'M': (2, 3), 'P': (2, 3),
-        'F': (2, 4), 'H': (2, 4), 'V': (2, 4), 'W': (2, 4),
-        'Y': (2, 4), 'K': (1, 5), 'J': (1, 8), 'X': (1, 8),
-        'Q': (1, 10), 'Z': (1, 10), '': (2, 0)  # Blanks as ''
+        "E": (12, 1),
+        "A": (9, 1),
+        "I": (9, 1),
+        "O": (8, 1),
+        "N": (6, 1),
+        "R": (6, 1),
+        "T": (6, 1),
+        "L": (4, 1),
+        "S": (4, 1),
+        "U": (4, 1),
+        "D": (4, 2),
+        "G": (3, 2),
+        "B": (2, 3),
+        "C": (2, 3),
+        "M": (2, 3),
+        "P": (2, 3),
+        "F": (2, 4),
+        "H": (2, 4),
+        "V": (2, 4),
+        "W": (2, 4),
+        "Y": (2, 4),
+        "K": (1, 5),
+        "J": (1, 8),
+        "X": (1, 8),
+        "Q": (1, 10),
+        "Z": (1, 10),
+        "": (2, 0),  # Blanks as ''
     }
     bag = []
     for letter, (count, points) in tile_counts.items():
         for _ in range(count):
             # x/y will be set when placed on board
             if letter == "":
-                pass
-            bag.append(Tile(letter=letter, multiplier=0, x=-1, y=-1))
+                bag.append(
+                    Tile(letter=letter, multiplier=0, x=None, y=None, is_blank=True)
+                )
+            else:
+                bag.append(Tile(letter=letter, multiplier=0, x=None, y=None))
     return bag
+
 
 def from_dict(cls, d: dict):
     kwargs = {}
@@ -204,6 +152,7 @@ def from_dict(cls, d: dict):
             kwargs[f.name] = value
     return cls(**kwargs)
 
+
 # TODO: Implement
 @dataclasses.dataclass
 class TileBank:
@@ -211,24 +160,13 @@ class TileBank:
     The hand for a player
     """
 
-    all_tiles: ClassVar[list[Tile]] = None
     hand: list[Tile]
 
-    def get_new_hand(self):
-        if TileBank.all_tiles is None:
-            TileBank.all_tiles = create_tile_bag()
-            
+    def get_new_hand(self, tile_bag):
         to_add = 7 - len(self.hand)
-        self.hand.extend(random.sample(self.all_tiles, to_add))
-
-        # Can't set all tiles directly
-        # self.all_tiles = [tile for tile in self.all_tiles if tile not in self.hand]
-
-        to_add = 7 - len(self.hand)
-        new_tiles = random.sample(TileBank.all_tiles, min(to_add, len(TileBank.all_tiles)))
-        self.hand.extend(new_tiles)
-        for tile in new_tiles:
-            TileBank.all_tiles.remove(tile)  # This updates the shared bag in-place
+        for _ in range(min(to_add, len(tile_bag))):
+            tile = tile_bag.pop(random.randrange(len(tile_bag)))
+            self.hand.append(tile)
 
     def remove_tiles(self, tiles: list[Tile]):
         for tile in tiles:
@@ -240,19 +178,19 @@ class TileBank:
 
 @dataclasses.dataclass
 class Player:
-    word_bank: TileBank
-
-@dataclasses.dataclass
-class Move:
-    locations: list[Tile]
+    word_bank: TileBank = dataclasses.field(default_factory=TileBank())
 
 
 @dataclasses.dataclass
 class Board:
+    all_tiles: list[Tile] = dataclasses.field(default_factory=create_tile_bag)
+
     @classmethod
     def initialize_board(cls):
         # TODO: Initialize multipliers
-        return [[Tile(x=cell, y=row) for cell in range(15)] for row in range(15)]
+        return [
+            [Tile(letter="", x=cell, y=row) for cell in range(15)] for row in range(15)
+        ]
 
     turn: int = 0
     current_player: Player
@@ -292,20 +230,22 @@ class Board:
         # ... make the moves
         to_remove = []
         new_board = copy.deepcopy(self.board)
-        
+
         for idx, loc in enumerate(move):
-            if new_board[loc.y][loc.x].letter is not None:
+            if not new_board[loc.y][loc.x].letter:
                 # Spot alerady occupied
                 return False
             if new_board[loc.y][loc.x].is_blank:
                 to_remove.append(idx)
             loc.multiplier = new_board[loc.y][loc.x].multiplier
-            new_board[loc.y][loc.x] = loc
+            new_board[loc.y][loc.x] = Tile.from_another(loc)
 
         for idx in to_remove:
             del move[idx]
         # TODO: Validate moves here
         # Make sure you can only add to prexisting words
+        if not self.validate_words():
+            return False
 
         self.board = new_board
 
@@ -313,21 +253,39 @@ class Board:
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]
 
-        self.current_player.word_bank.get_new_hand()
+        self.current_player.word_bank.get_new_hand(self.all_tiles)
 
     def validate_words(self):
         """Validate all words on the board"""
         # Words can be row or column
         for row in self.board:
             for col in row:
-                if col.letter != "":
-                    word = "".join(col.letter for col in row)
-                    if not self.word_list.is_valid_word(word):
-                        raise ValueError(f"Word {word} is not valid")
+
+                if col.letter == "":
+                    return False
+                word = "".join(col.letter for col in row)
+                if not self.word_list.is_valid_word(word):
+                    return False
 
         for row in rotate_list(self.board):
             for col in row:
-                if col.letter != "":
-                    word = "".join(col.letter for col in row)
-                    if not self.word_list.is_valid_word(word):
-                        raise ValueError(f"Word {word} is not valid")
+                if col.letter == "":
+                    return False
+                word = "".join(col.letter for col in row)
+                if not self.word_list.is_valid_word(word):
+                    return False
+        return True
+
+    def to_dict(self):
+        return dataclasses.asdict(self)
+
+    def serialize(self):
+        return json.dumps(self.to_dict())
+
+    async def save_to_redis(self):
+        return rd.json().set(REDIS_KEY, ROOT_PATH, self.to_dict())
+
+    @classmethod
+    async def load_from_redis(cls):
+        data = await rd.json().get(REDIS_KEY)
+        return from_dict(cls, data)

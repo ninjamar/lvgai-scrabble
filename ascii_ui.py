@@ -16,6 +16,7 @@ team_number_str = f"{team_number:02d}"
 # Build the WebSocket URL dynamically
 WEBSOCKET_URL = f"ws://ai.thewcl.com:87{team_number_str}"
 
+
 def clear_terminal():
     os.system("cls" if os.name == "nt" else "clear")
 

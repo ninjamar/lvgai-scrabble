@@ -3,13 +3,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# Attempt to import the real ScrabbleGame implementation that the backend team
-# maintains. You may need to adjust this import path to match your project.
-try:
-    from scrabble.engine import ScrabbleGame  # noqa: F401
-except ImportError:  # Fallback to local stub so the API can still run.
-    # NOTE: Remove this fallback once the real ScrabbleGame class is importable.
-    from scrabble_cli import ScrabbleGame  # type: ignore
+from scrabble.engine import ScrabbleGame  
 
 app = FastAPI(title="Scrabble Game API", version="0.1.0")
 

@@ -6,7 +6,7 @@ from redis.commands.json.path import Path
 import json
 import ipdb
 
-r = redis.Redis(host="ai.thewcl.com", port=6379, db=0, password="atmega328")
+r = redis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 REDIS_KEY = "tic_tac_toe:game_state"
 
 # ----------------------------

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 # Import game logic from ram directory (adjust the path if necessary)
-from ram.scrabble import Board, Player, PWordBank, BTile, MLocation, Move  
+from ram.scrabble import Board, Player, PWordBank, Tile, MLocation, Move  
 
 app = FastAPI(title="Scrabble Board API", version="0.2.0")
 
@@ -65,7 +65,7 @@ def make_move(req: MakeMoveRequest):
 @app.get("/board")
 def get_board():
     board = _assert_board_exists()
-    # Convert BTile objects to dict with letter & multiplier for ease of front-end use.
+    # Convert Tile objects to dict with letter & multiplier for ease of front-end use.
     simple_board = [[{"letter": getattr(cell, "letter", ""), "mult": getattr(cell, "multiplier", 1)} for cell in row] for row in board.board]
     return {"board": simple_board, "turn": board.turn}
 

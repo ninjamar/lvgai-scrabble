@@ -172,12 +172,12 @@ class Tile:
 
 # TODO: Implement
 @dataclasses.dataclass
-class WordBank:
+class TileBank:
     """
     The hand for a player
     """
 
-    all_tiles: list[Tile]
+    all_tiles: list[Tile] = []
     hand: list[Tile]
 
     def get_new_hand(self):
@@ -195,7 +195,7 @@ class WordBank:
 
 @dataclasses.dataclass
 class Player:
-    word_bank: WordBank
+    word_bank: TileBank
 
 @dataclasses.dataclass
 class Move:

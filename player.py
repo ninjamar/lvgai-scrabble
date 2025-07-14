@@ -19,7 +19,9 @@ parser.add_argument(
 parser.add_argument(
     "--reset", action="store_true", help="Reset the board before starting the game."
 )
-parser.add_argument("--team", required=True, help="Your team number (used as Redis DB number)")
+parser.add_argument(
+    "--team", required=True, help="Your team number (used as Redis DB number)"
+)
 args = parser.parse_args()
 
 i_am_playing = args.player
@@ -30,7 +32,11 @@ print(f"Connecting to WebSocket server at {WS_URL}")
 
 # Redis Pub/Sub setup
 r = aioredis.Redis(
-    host="ai.thewcl.com", port=6379, db=team_number, password=os.getenv("WCL_REDIS_PASSWORD"), decode_responses=True
+    host="ai.thewcl.com",
+    port=6379,
+    db=team_number,
+    password=os.getenv("WCL_REDIS_PASSWORD"),
+    decode_responses=True,
 )
 redisPubSubKey = "ttt_game_state_changed"
 

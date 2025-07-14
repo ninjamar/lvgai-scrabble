@@ -139,6 +139,7 @@ Let me know which area you want to clarify, learn, or implement next!**
 import dataclasses
 import copy
 import random
+from typing import ClassVar
 
 # https://stackoverflow.com/q/8421337
 rotate_list = lambda x: list(zip(*x[::-1]))
@@ -148,7 +149,7 @@ rotate_list = lambda x: list(zip(*x[::-1]))
 class WordList:
     """Contains a list of valid words"""
 
-    word_list: list[str]
+    word_list: list[str] = dataclasses.field(init=False)
 
     @classmethod
     def load_word_list(cls):
@@ -170,6 +171,39 @@ class Tile:
     x: int
     y: int
 
+    is_blank: bool
+
+def create_tile_bag():
+    # TODO: Points
+    # {letter: (count, value)}
+    tile_counts = {
+        'E': (12, 1), 'A': (9, 1), 'I': (9, 1), 'O': (8, 1),
+        'N': (6, 1), 'R': (6, 1), 'T': (6, 1), 'L': (4, 1),
+        'S': (4, 1), 'U': (4, 1), 'D': (4, 2), 'G': (3, 2),
+        'B': (2, 3), 'C': (2, 3), 'M': (2, 3), 'P': (2, 3),
+        'F': (2, 4), 'H': (2, 4), 'V': (2, 4), 'W': (2, 4),
+        'Y': (2, 4), 'K': (1, 5), 'J': (1, 8), 'X': (1, 8),
+        'Q': (1, 10), 'Z': (1, 10), '': (2, 0)  # Blanks as ''
+    }
+    bag = []
+    for letter, (count, points) in tile_counts.items():
+        for _ in range(count):
+            # x/y will be set when placed on board
+            if letter == "":
+                pass
+            bag.append(Tile(letter=letter, multiplier=0, x=-1, y=-1))
+    return bag
+
+def from_dict(cls, d: dict):
+    kwargs = {}
+    for f in dataclasses.fields(cls):
+        value = d.get(f.name)
+        if dataclasses.is_dataclass(f.type) and isinstance(value, dict):
+            kwargs[f.name] = f.type(**value)
+        else:
+            kwargs[f.name] = value
+    return cls(**kwargs)
+
 # TODO: Implement
 @dataclasses.dataclass
 class TileBank:
@@ -177,13 +211,24 @@ class TileBank:
     The hand for a player
     """
 
-    all_tiles: list[Tile] = []
+    all_tiles: ClassVar[list[Tile]] = None
     hand: list[Tile]
 
     def get_new_hand(self):
+        if TileBank.all_tiles is None:
+            TileBank.all_tiles = create_tile_bag()
+            
         to_add = 7 - len(self.hand)
         self.hand.extend(random.sample(self.all_tiles, to_add))
-        self.all_tiles = [tile for tile in self.all_tiles if tile not in self.hand]
+
+        # Can't set all tiles directly
+        # self.all_tiles = [tile for tile in self.all_tiles if tile not in self.hand]
+
+        to_add = 7 - len(self.hand)
+        new_tiles = random.sample(TileBank.all_tiles, min(to_add, len(TileBank.all_tiles)))
+        self.hand.extend(new_tiles)
+        for tile in new_tiles:
+            TileBank.all_tiles.remove(tile)  # This updates the shared bag in-place
 
     def remove_tiles(self, tiles: list[Tile]):
         for tile in tiles:
@@ -219,7 +264,7 @@ class Board:
     def __post_init__(self):
         self.current_player = self.players[0]
 
-    def make_move(self, move: Move):
+    def make_move(self, move: list[Tile]):
         # https://playscrabble.com/news-blog/scrabble-rules-official-scrabble-web-games-rules-play-scrabble
         # [x] If it is the first move, it must be on the center square
         # [x] Validate all values -- they must all be in the word bank
@@ -231,36 +276,44 @@ class Board:
         # locations: [(letter, x, y), ...]
         # If it is the first move, it must be on the center square
         if self.turn == 0:
-            if move.locations[0].x != 7 or move.locations[0].y != 7:
+            if move[0].x != 7 or move[0].y != 7:
                 raise ValueError("First move must be on the center square")
 
-        if not all(loc in self.current_player.word_bank for loc in move.locations):
+        if not all(loc in self.current_player.word_bank for loc in move):
             raise ValueError("All tiles must be in the word bank")
 
         # https://stackoverflow.com/a/433161
         # Check if same column or check if same row
-        if bool(all(loc.x == move.locations[0].x for loc in move.locations)) != bool(
-            all(loc.y == move.locations[0].y for loc in move)
+        if bool(all(loc.x == move[0].x for loc in move)) != bool(
+            all(loc.y == move[0].y for loc in move)
         ):
             raise ValueError("All moves must be in the same column or row")
 
         # ... make the moves
+        to_remove = []
         new_board = copy.deepcopy(self.board)
-        for loc in move.locations:
+        
+        for idx, loc in enumerate(move):
             if new_board[loc.y][loc.x].letter is not None:
                 # Spot alerady occupied
                 return False
+            if new_board[loc.y][loc.x].is_blank:
+                to_remove.append(idx)
             loc.multiplier = new_board[loc.y][loc.x].multiplier
             new_board[loc.y][loc.x] = loc
 
+        for idx in to_remove:
+            del move[idx]
         # TODO: Validate moves here
         # Make sure you can only add to prexisting words
 
         self.board = new_board
 
-        self.current_player.word_bank.remove_tiles(move.locations)  # TODO: Implement
+        self.current_player.word_bank.remove_tiles(move)  # TODO: Implement
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]
+
+        self.current_player.word_bank.get_new_hand()
 
     def validate_words(self):
         """Validate all words on the board"""

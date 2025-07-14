@@ -8,14 +8,13 @@ async def main():
     word_list = WordList.load_word_list()
 
     b = Board(players=[Player()], tile_bag=create_tile_bag())
-    b.word_list = word_list
-
-    b.initialize()
+    b.initialize(word_list)
 
     await b.save_to_redis()
     c = await b.load_from_redis(word_list=word_list)
 
-    print(b, c)
+    assert c == b
+
 
 if __name__ == "__main__":
     asyncio.run(main())

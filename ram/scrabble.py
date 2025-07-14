@@ -59,6 +59,7 @@ class WordList:
     
     @classmethod
     def load_word_list(cls):
+        # TODO: Use abs path
         with open("words.txt", "r") as f:
             return cls(word_list=f.read().splitlines())
 
@@ -94,7 +95,14 @@ class Tile:
 
     @classmethod
     def from_another(cls, obj: "Tile"):
-        return from_dict(cls, dataclasses.asdict(obj))
+        return cls(
+            letter=obj.letter,
+            multiplier=obj.multiplier,
+            x=obj.x,
+            y=obj.y,
+            is_blank=obj.is_blank
+        )
+
 
 
 def create_tile_bag():
@@ -169,7 +177,6 @@ def from_dict(cls, d: dict):
 
 
 
-# TODO: Implement
 @dataclasses.dataclass
 class TileBank:
     """
@@ -209,7 +216,7 @@ class Board:
         return [
             [Tile(letter="", x=cell, y=row) for cell in range(15)] for row in range(15)
         ]
-
+    # TODO: Single line
     board: list[list] = dataclasses.field(default_factory=lambda: Board.initialize_board())
     # Word list needs to stay client side -- so do not make as dict work on this
     word_list: WordList = dataclasses.field(default=None, repr=False, compare=False, init=False)
@@ -217,7 +224,8 @@ class Board:
     turn: int = 0
     current_player: Player = None
 
-    def initialize(self):
+    def initialize(self, word_list):
+        self.word_list = word_list
         # Can't use post init because this depends on word list
         self.current_player = self.players[0]
         for player in self.players:

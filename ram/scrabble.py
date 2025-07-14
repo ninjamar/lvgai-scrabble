@@ -55,12 +55,12 @@ rotate_list = lambda x: list(zip(*x[::-1]))
 class WordList:
     """Contains a list of valid words"""
 
-    word_list: list[str] = dataclasses.field(init=False)
-
+    word_list: list[str] = None
+    
     @classmethod
     def load_word_list(cls):
         with open("words.txt", "r") as f:
-            cls.word_list = f.read().splitlines()
+            return cls(word_list=f.read().splitlines())
 
     def is_valid_word(self, word):
         return word in self.word_list
@@ -74,10 +74,10 @@ class Tile:
 
     letter: str = None
     multiplier: int = 0
-    x: int
-    y: int
+    x: int = None
+    y: int = None
 
-    is_blank: bool
+    is_blank: bool = False
 
     def __eq__(self, other):
         if not isinstance(other, Tile):
@@ -145,12 +145,28 @@ def create_tile_bag():
 def from_dict(cls, d: dict):
     kwargs = {}
     for f in dataclasses.fields(cls):
+        if not f.init: # init=False
+            continue
+
         value = d.get(f.name)
-        if dataclasses.is_dataclass(f.type) and isinstance(value, dict):
-            kwargs[f.name] = f.type(**value)
+        if dataclasses.is_dataclass(f.type):
+            if isinstance(value, dict):
+                kwargs[f.name] = from_dict(f.type, value)
+            elif isinstance(value, list):
+                kwargs[f.name] = [from_dict(f.type, v) if isinstance(v, dict) else v for v in value]
+            else:
+                kwargs[f.name] = value
+        elif (isinstance(value, list) and
+              hasattr(f.type, "__origin__") and
+              f.type.__origin__ is list and
+              dataclasses.is_dataclass(f.type.__args__[0])):
+            # For list of dataclasses
+            item_type = f.type.__args__[0]
+            kwargs[f.name] = [from_dict(item_type, item) if isinstance(item, dict) else item for item in value]
         else:
             kwargs[f.name] = value
     return cls(**kwargs)
+
 
 
 # TODO: Implement
@@ -160,7 +176,7 @@ class TileBank:
     The hand for a player
     """
 
-    hand: list[Tile]
+    hand: list[Tile] = dataclasses.field(default_factory=list)
 
     def get_new_hand(self, tile_bag):
         to_add = 7 - len(self.hand)
@@ -178,12 +194,14 @@ class TileBank:
 
 @dataclasses.dataclass
 class Player:
-    word_bank: TileBank = dataclasses.field(default_factory=TileBank())
+    word_bank: TileBank = dataclasses.field(default_factory=TileBank)
 
 
 @dataclasses.dataclass
 class Board:
-    all_tiles: list[Tile] = dataclasses.field(default_factory=create_tile_bag)
+    players: list[Player]
+
+    tile_bag: list[Tile]
 
     @classmethod
     def initialize_board(cls):
@@ -192,15 +210,18 @@ class Board:
             [Tile(letter="", x=cell, y=row) for cell in range(15)] for row in range(15)
         ]
 
+    board: list[list] = dataclasses.field(default_factory=lambda: Board.initialize_board())
+    # Word list needs to stay client side -- so do not make as dict work on this
+    word_list: WordList = dataclasses.field(default=None, repr=False, compare=False, init=False)
+
     turn: int = 0
-    current_player: Player
-    players: list[Player]
+    current_player: Player = None
 
-    board = dataclasses.field(default_factory=lambda: Board.initialize_board())
-    word_list = dataclasses.field(default_factory=WordList)
-
-    def __post_init__(self):
+    def initialize(self):
+        # Can't use post init because this depends on word list
         self.current_player = self.players[0]
+        for player in self.players:
+            player.word_bank.get_new_hand(self.tile_bag)
 
     def make_move(self, move: list[Tile]):
         # https://playscrabble.com/news-blog/scrabble-rules-official-scrabble-web-games-rules-play-scrabble
@@ -253,7 +274,7 @@ class Board:
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]
 
-        self.current_player.word_bank.get_new_hand(self.all_tiles)
+        self.current_player.word_bank.get_new_hand(self.tile_bag)
 
     def validate_words(self):
         """Validate all words on the board"""
@@ -278,14 +299,58 @@ class Board:
 
     def to_dict(self):
         return dataclasses.asdict(self)
+    
+    def to_save_dict(self):
+        return {
+            "players": [
+                {
+                    "hand": [(t.letter, t.is_blank) for t in player.word_bank.hand]
+                }
+                for player in self.players
+            ],
+            "tile_bag": [(t.letter, t.is_blank) for t in self.tile_bag],
+            "board": [[(t.letter, t.is_blank) for t in row] for row in self.board],
+            "turn": self.turn,
+            "current_player": self.players.index(self.current_player),
+        }
+    @classmethod
+    def from_save_dict(cls, data, word_list):
+        # Reconstruct player hands
+        players = [
+            Player(
+                word_bank=TileBank(
+                    hand=[Tile(letter=l, is_blank=b) for (l, b) in player_data["hand"]]
+                )
+            )
+            for player_data in data["players"]
+        ]
+        # Reconstruct tile bag
+        tile_bag = [Tile(letter=l, is_blank=b) for (l, b) in data["tile_bag"]]
+        # Reconstruct board
+        board = [
+            [Tile(letter=l, is_blank=b, x=x, y=y) for x, (l, b) in enumerate(row)]
+            for y, row in enumerate(data["board"])
+        ]
+        # Create Board instance
+        board_obj = cls(
+            players=players,
+            tile_bag=tile_bag,
+            board=board,
+            turn=data["turn"],
+            current_player=players[data["current_player"]],
+        )
+        board_obj.word_list = word_list  # inject client word list
+        return board_obj
+
 
     def serialize(self):
         return json.dumps(self.to_dict())
 
     async def save_to_redis(self):
-        return rd.json().set(REDIS_KEY, ROOT_PATH, self.to_dict())
+        return await rd.json().set(REDIS_KEY, ROOT_PATH, self.to_save_dict())
 
     @classmethod
-    async def load_from_redis(cls):
+    async def load_from_redis(cls, word_list: WordList):
         data = await rd.json().get(REDIS_KEY)
-        return from_dict(cls, data)
+        obj = Board.from_save_dict(data, word_list)
+        return obj

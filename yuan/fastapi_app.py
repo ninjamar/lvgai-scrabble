@@ -1,12 +1,103 @@
+import sys
+import os
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from typing import List, Optional
+# Add parent directory to path to import from ram directory
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import game logic from ram directory (adjust the path if necessary)
-from ram.scrabble import Board, Player, PWordBank, Tile, MLocation, Move
+# ---------------------------------------------------------------------------
+# Temporary monkey-patch: The `Tile` dataclass in `ram.scrabble` defines fields
+# with defaults before fields without defaults, which raises a `TypeError` when
+# the module is imported.  We work around this limitation by patching
+# `dataclasses.dataclass` with a forgiving wrapper that silently re-orders the
+# fields when it detects this specific anti-pattern.  Once the upstream code is
+# fixed the patch becomes a harmless no-op.
+# ---------------------------------------------------------------------------
+import dataclasses as _dc, importlib as _il
+
+_orig_dataclass = _dc.dataclass  # Preserve the original decorator
+
+
+def _forgiving_dataclass(cls=None, **kwargs):
+    """A drop-in replacement for `dataclasses.dataclass` that tolerates default
+    fields preceding non-default fields by automatically re-ordering them.
+    This is **ONLY** intended as a runtime fix-up until the source is cleaned
+    up.  It leaves dataclass semantics unchanged for all well-formed classes."""
+
+    # Support usage both with and without parentheses: @dataclass vs @dataclass()
+    if cls is None:
+        return lambda real_cls: _forgiving_dataclass(real_cls, **kwargs)
+
+    import typing as _t
+    ann = dict(getattr(cls, "__annotations__", {}))  # copy to mutate
+    names = list(ann.keys())
+
+    # Detect whether we have any default-value field appearing before a
+    # non-default field.
+    seen_default = False
+    needs_fix = False
+    for name in names:
+        if hasattr(cls, name):
+            seen_default = True
+        elif seen_default:
+            needs_fix = True
+            break
+
+    # Also check for missing annotations on dataclasses.fields
+    missing_ann = any(isinstance(v, _dc.Field) and k not in ann for k, v in cls.__dict__.items())
+
+    if needs_fix or missing_ann:
+        # Ensure every attribute that uses dataclasses.field has a type annotation.
+        for attr_name, attr_val in list(cls.__dict__.items()):
+            if isinstance(attr_val, _dc.Field) and attr_name not in ann:
+                ann[attr_name] = _t.Any
+                names.append(attr_name)
+
+        # Re-partition after possibly adding new annotations
+        non_defaults = [(n, ann[n]) for n in names if not hasattr(cls, n)]
+        defaults = [
+            (n, ann[n], getattr(cls, n)) for n in names if hasattr(cls, n)
+        ]
+
+        # Temporarily restore original decorator to avoid recursion
+        _dc.dataclass = _orig_dataclass
+        try:
+            cls = _dc.make_dataclass(
+                cls.__name__,
+                non_defaults + defaults,
+                bases=cls.__bases__,
+                namespace={k: v for k, v in cls.__dict__.items() if k not in names},
+            )
+        finally:
+            _dc.dataclass = _forgiving_dataclass  # reinstate wrapper
+        return cls
+
+    # Fall back to the standard behaviour for well-formed classes
+    return _orig_dataclass(cls, **kwargs)
+
+# Activate the patch 
+_dc.dataclass = _forgiving_dataclass
+
+# Import scrabble while the forgiving dataclass decorator is in scope
+# Import core game classes; include WordList so we can patch its default factory
+from ram.scrabble import Board, Player, WordBank, WordList, Tile, Move
+# Provide backward-compatibility aliases expected by earlier code
+PWordBank = WordBank
+BTile = Tile
+MLocation = Tile
+
+# ---------------------------------------------------------------------------
+# Fix `Board.word_list` default factory which otherwise calls WordList() with
+# no arguments and raises TypeError. We replace it with a lambda returning an
+# empty WordList instance.
+# ---------------------------------------------------------------------------
+Board.__dataclass_fields__["word_list"].default_factory = lambda: WordList(word_list=[])
+
+# Restore the original decorator to avoid affecting unrelated code
+_dc.dataclass = _orig_dataclass
 
 app = FastAPI(title="Scrabble Board API", version="0.2.0")
 
@@ -41,8 +132,8 @@ def start_game(req: StartGameRequest):
     """Create a new Board and players."""
     global _board
     # For now, create empty hands; tile handling can be delegated to Board logic if implemented later.
-    players = [Player(hand=PWordBank(all_tiles=[], hand=[])) for _ in req.players]
-    _board = Board(players=players)  # type: ignore[arg-type]
+    players = [Player(word_bank=WordBank(all_tiles=[], hand=[])) for _ in req.players]
+    _board = Board(players=players, current_player=players[0], word_list=WordList(word_list=[]))
     return {
         "message": "Game started",
         "players": req.players,

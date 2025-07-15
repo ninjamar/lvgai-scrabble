@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import websockets
 import json
 import os
@@ -29,6 +30,18 @@ def format_cell(cell_value, index):
     else:
         return '.'  # Empty cell
 
+@dataclasses.dataclass
+class Scrabble:
+    def __init__(self):
+        # Initialize an empty 15x15 board of (letter, bonus) tuples
+        self.board = [[("", "") for _ in range(15)] for _ in range(15)]
+        self.board[7][7] = ("H", "")
+        self.board[7][8] = ("I", "")  # You can change this test data
+
+    def to_save_dict(self):
+        return {"board": self.board}
+
+
 def render_board(board):
     """
     board: a 15x15 2D list where each cell holds a letter, a bonus marker like 'DL', or None
@@ -45,6 +58,19 @@ def render_board(board):
             row_cells.append(format_cell(cell_value, (row_index, col_index)))
         print(f"{str(row_index + 1).rjust(2)} " + " ".join(row_cells))
 
+def print_board_from_save_dict(save_dict):
+    board = save_dict["board"]
+    print("   " + " ".join(f"{i:2}" for i in range(len(board[0]))))
+    print("  +" + "---" * len(board[0]) + "+")
+    for y, row in enumerate(board):
+        line = f"{y:2}|"
+        for cell in row:
+            letter = cell[0] if cell[0] else "."
+            line += f" {letter} "
+        line += "|"
+        print(line)
+    print("  +" + "---" * len(board[0]) + "+")
+
 async def listen_for_updates():
     async with websockets.connect(WEBSOCKET_URL) as ws:
         print(f"Connected to {WEBSOCKET_URL}")
@@ -52,8 +78,11 @@ async def listen_for_updates():
             try:
                 data = json.loads(message)
                 positions = data.get("positions")
+                if "board" in data: 
+                    clear_terminal()
+                    print_board_from_save_dict(data)
 
-                if (
+                elif (
                     isinstance(positions, list) and 
                     len(positions) == 15 and 
                     all(isinstance(row, list) and len(row) == 15 for row in positions)
@@ -64,6 +93,30 @@ async def listen_for_updates():
                     print("Invalid board data received.")
             except json.JSONDecodeError:
                 print("Received non-JSON message.")
+                
+b = Scrabble()
+save_dict = b.to_save_dict()
+print(save_dict)
+print_board_from_save_dict(save_dict)
+
+
+def test_local_board_rendering():
+    # Simulate a save_dict with a board of letter/None tuples
+    board = [[("", "") for _ in range(15)] for _ in range(15)]
+    board[7][7] = ("H", "")  # Put a single tile at center
+    board[7][8] = ("E", "")
+    board[7][9] = ("L", "")
+    board[7][10] = ("L", "")
+    board[7][11] = ("O", "")
+
+    save_dict = {"board": board}
+    clear_terminal()
+    print_board_from_save_dict(save_dict)
 
 if __name__ == "__main__":
-    asyncio.run(listen_for_updates())
+    b = Scrabble()
+    save_dict = b.to_save_dict()
+    print(save_dict)
+    print_board_from_save_dict(save_dict)
+    # test_local_board_rendering()
+    # asyncio.run(listen_for_updates())

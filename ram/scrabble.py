@@ -22,6 +22,7 @@
 """
 [x] TODO: Implement move validation
 [ ] TODO: Implement scoring
+[ ] TODO: Implement game over state (I think running out of tiles)
 [ ] TODO: Test code
 """
 
@@ -209,6 +210,7 @@ class TileBank:
 @dataclasses.dataclass
 class Player:
     word_bank: TileBank = dataclasses.field(default_factory=TileBank)
+    score: int = 0
 
 
 @dataclasses.dataclass
@@ -226,6 +228,12 @@ class Board:
 
     turn: int = 0
     current_player: Player = None
+
+    is_game_over: bool = False
+
+    def __post_init__(self):
+        if not (2 <= len(self.players) <= 4):
+            raise ValueError("Invalid amount of players. Need 2-4 players inclusive.")
 
     def initialize(self, word_list):
         self.word_list = word_list
@@ -399,15 +407,18 @@ class Board:
             y += dy
 
     def to_save_dict(self):
+        # HACK: This is done manually. If a field is added to anything, MAKE
+        # SURE to add here and to cls.from_save_dict
         return {
             "players": [
-                {"hand": [(t.letter, t.is_blank) for t in player.word_bank.hand]}
+                {"hand": [(t.letter, t.is_blank) for t in player.word_bank.hand], "score": player.score}
                 for player in self.players
             ],
             "tile_bag": [(t.letter, t.is_blank) for t in self.tile_bag],
             "board": [[(t.letter, t.is_blank) for t in row] for row in self.board],
             "turn": self.turn,
             "current_player": self.players.index(self.current_player),
+            "is_game_over": self.is_game_over
         }
 
     @classmethod
@@ -417,7 +428,8 @@ class Board:
             Player(
                 word_bank=TileBank(
                     hand=[Tile(letter=l, is_blank=b) for (l, b) in player_data["hand"]]
-                )
+                ),
+                score=player_data["score"]
             )
             for player_data in data["players"]
         ]
@@ -435,6 +447,7 @@ class Board:
             board=board,
             turn=data["turn"],
             current_player=players[data["current_player"]],
+            is_game_over=data["is_game_over"]
         )
         board_obj.word_list = word_list  # inject client word list
         return board_obj

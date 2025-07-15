@@ -62,15 +62,15 @@ class WordList:
     """Contains a list of valid words"""
 
     word_list: list[str] = None
-    
+
     @classmethod
     def load_word_list(cls):
         # TODO: Use abs path
-        with open("words.txt", "r") as f:
-            return cls(word_list=f.read().splitlines())
+        with open(Path(__file__).resolve().parent / "words.txt", "r") as f:
+            return cls(word_list=[word.upper() for word in f.read().splitlines()])
 
     def is_valid_word(self, word):
-        return word.lower() in self.word_list
+        return word.upper() in self.word_list
 
 
 @dataclasses.dataclass

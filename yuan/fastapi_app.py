@@ -1,28 +1,16 @@
 import sys
 import os
 from typing import List, Optional
-
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
-
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import dataclasses as _dc, importlib as _il
 from ram.scrabble import Board, Player, WordList,TileBank, create_tile_bag, Tile
+import redis.asyncio as aredis
+
+
 WORD_LIST = WordList.load_word_list()
 
-import redis.asyncio as aredis
-_rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
+rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 
-if not hasattr(Board, "_patched_save"):
-    async def _save_root(self):
-        return await _rd.json().set("scrabble:game_state", "$", self.to_save_dict())
-    Board.save_to_redis = _save_root      # type: ignore[attr-defined]
-    Board._patched_save = True
-
-from ram.scrabble import TileBank
-# Patch TileBank.__init__ to make `hand` optional
 app = FastAPI(title="Scrabble Board API", version="0.2.0")
 
 

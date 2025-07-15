@@ -33,6 +33,10 @@
    +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
 ^y
 """
+"""
+[ ] TODO: Implement move validation
+[ ] TODO: Implement scoring
+"""
 
 import json
 import dataclasses

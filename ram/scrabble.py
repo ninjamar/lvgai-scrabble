@@ -260,7 +260,13 @@ class Board:
             all(loc.y == move[0].y for loc in move)
         ):
             raise ValueError("All moves must be in the same column or row")
-
+        
+        if not self.is_contiguous(move):
+            raise ValueError("Move is not contiguous")
+        
+        if self.turn > 0 and not self.touches_existing_tile(move, is_first_turn=False):
+            raise ValueError("Move must touch an existing tile")
+        """
         # ... make the moves
         to_remove = []
         new_board = copy.deepcopy(self.board)
@@ -282,7 +288,24 @@ class Board:
             return False
 
         self.board = new_board
+        """
+        # 1 – lay tiles on a temporary board
+        temp_board = copy.deepcopy(self.board)
+        for tile in move:
+            temp_board[tile.y][tile.x] = Tile.from_another(tile)
 
+        # 2 – build all words just formed
+        words = self.extract_words(move, temp_board)
+
+        # 3 – validate each word
+        for word, _tiles in words:
+            if len(word) < 2:
+                raise ValueError("Every word must be at least two letters")
+            if not self.word_list.is_valid_word(word):
+                raise ValueError(f"‘{word}’ is not in the dictionary")
+
+        # 4 – everything passed → commit the temp board
+        self.board = temp_board
         self.current_player.word_bank.remove_tiles(move)  # TODO: Implement
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]
@@ -337,11 +360,99 @@ class Board:
 
         5. All squares were occupied → output True.
         """
-        pass
+        if not move:
+            return False
+
+        xs = [t.x for t in move]
+        ys = [t.y for t in move]
+        new_positions = {(t.x, t.y) for t in move}
+
+        # Vertical line
+        if len(set(xs)) == 1:
+            x = xs[0]
+            for y in range(min(ys), max(ys) + 1):
+                if (x, y) not in new_positions and not self.board[y][x].letter:
+                    return False
+            return True
+
+        # Horizontal line
+        if len(set(ys)) == 1:
+            y = ys[0]
+            for x in range(min(xs), max(xs) + 1):
+                if (x, y) not in new_positions and not self.board[y][x].letter:
+                    return False
+            return True
+
+        return False
+    
     def touches_existing_tile(self, move: list[Tile], is_first_turn):
-        pass
-    def extract(move: list[Tile], board_post_move: list):
-        pass
+        if is_first_turn:
+            return False
+        
+        positions = {(t.x, t.y) for t in move}
+        for tile in move:
+            for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
+                x, y = tile.x + dx, tile.y + dy
+                if 0 <= x < 15 and 0 <= y < 15:
+                    # If not a just-placed tile and has a letter
+                    if (x, y) not in positions and self.board[y][x].letter:
+                        return True
+        return False
+    
+    def extract_words(self, move: list[Tile], board_post_move: list):
+        words = []
+        new_pos = {(t.x, t.y): t for t in move}
+
+        vertical = len({t.x for t in move}) == 1
+        primary_axis = 'y' if vertical else 'x'
+
+        # --- build main word ---
+        if vertical:
+            x = move[0].x
+            all_ys = [t.y for t in move]
+            y_start = min(all_ys)
+            # walk upward to first letter
+            while y_start > 0 and board_post_move[y_start - 1][x].letter:
+                y_start -= 1
+            tiles = []
+            y = y_start
+            while y < 15 and (board_post_move[y][x].letter or (x, y) in new_pos):
+                tiles.append(new_pos.get((x, y), board_post_move[y][x]))
+                y += 1
+        else:
+            y = move[0].y
+            all_xs = [t.x for t in move]
+            x_start = min(all_xs)
+            while x_start > 0 and board_post_move[y][x_start - 1].letter:
+                x_start -= 1
+            tiles = []
+            x = x_start
+            while x < 15 and (board_post_move[y][x].letter or (x, y) in new_pos):
+                tiles.append(new_pos.get((x, y), board_post_move[y][x]))
+                x += 1
+
+        word = ''.join(t.letter for t in tiles)
+        words.append((word, tiles))
+
+        # --- build cross words ---
+        for t in move:
+            if vertical:   # cross words are horizontal
+                horiz_tiles = list(self._scan(t.x, t.y, -1, 0))[::-1] + [t] + list(self._scan(t.x, t.y, 1, 0))
+                if len(horiz_tiles) > 1:
+                    words.append((''.join(tt.letter for tt in horiz_tiles), horiz_tiles))
+            else:          # cross words are vertical
+                vert_tiles = list(self._scan(t.x, t.y, 0, -1))[::-1] + [t] + list(self._scan(t.x, t.y, 0, 1))
+                if len(vert_tiles) > 1:
+                    words.append((''.join(tt.letter for tt in vert_tiles), vert_tiles))
+
+        return words
+    
+    def _scan(self, start_x, start_y, dx, dy):
+        x, y = start_x + dx, start_y + dy
+        while 0 <= x < 15 and 0 <= y < 15 and self.board[y][x].letter:
+            yield self.board[y][x]
+            x += dx
+            y += dy
     
     def to_save_dict(self):
         return {

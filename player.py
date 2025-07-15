@@ -1,10 +1,11 @@
 import argparse
 import asyncio
 import json
+import os
+
 import httpx
 import redis.asyncio as aioredis
 import websockets
-import os
 
 redisPubSubKey = "ttt_game_state_changed"
 

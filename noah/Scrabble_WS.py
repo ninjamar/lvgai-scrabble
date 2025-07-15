@@ -1,9 +1,10 @@
+import argparse
 import asyncio
 import dataclasses
-import websockets
 import json
 import os
-import argparse
+
+import websockets
 
 # Parse required --team argument
 parser = argparse.ArgumentParser(description="ASCII UI for Scrabble")
@@ -15,8 +16,10 @@ team_number_str = f"{team_number:02d}"
 # Build the WebSocket URL dynamically
 WEBSOCKET_URL = "ws://ai.thewcl.com:8704"
 
+
 def clear_terminal():
     os.system("cls" if os.name == "nt" else "clear")
+
 
 def format_cell(cell_value, index):
     """
@@ -28,7 +31,8 @@ def format_cell(cell_value, index):
     elif isinstance(cell_value, str):
         return cell_value  # Bonus like 'TW', 'DL', etc.
     else:
-        return '.'  # Empty cell
+        return "."  # Empty cell
+
 
 @dataclasses.dataclass
 class Scrabble:
@@ -48,7 +52,7 @@ def render_board(board):
     """
     size = 15
     # Print column headers: A B C D ...
-    column_labels = "   " + " ".join([chr(ord('A') + i) for i in range(size)])
+    column_labels = "   " + " ".join([chr(ord("A") + i) for i in range(size)])
     print(column_labels)
 
     for row_index in range(size):
@@ -57,6 +61,7 @@ def render_board(board):
             cell_value = board[row_index][col_index]
             row_cells.append(format_cell(cell_value, (row_index, col_index)))
         print(f"{str(row_index + 1).rjust(2)} " + " ".join(row_cells))
+
 
 def print_board_from_save_dict(save_dict):
     board = save_dict["board"]
@@ -71,6 +76,7 @@ def print_board_from_save_dict(save_dict):
         print(line)
     print("  +" + "---" * len(board[0]) + "+")
 
+
 async def listen_for_updates():
     async with websockets.connect(WEBSOCKET_URL) as ws:
         print(f"Connected to {WEBSOCKET_URL}")
@@ -78,14 +84,16 @@ async def listen_for_updates():
             try:
                 data = json.loads(message)
                 positions = data.get("positions")
-                if "board" in data: 
+                if "board" in data:
                     clear_terminal()
                     print_board_from_save_dict(data)
 
                 elif (
-                    isinstance(positions, list) and 
-                    len(positions) == 15 and 
-                    all(isinstance(row, list) and len(row) == 15 for row in positions)
+                    isinstance(positions, list)
+                    and len(positions) == 15
+                    and all(
+                        isinstance(row, list) and len(row) == 15 for row in positions
+                    )
                 ):
                     clear_terminal()
                     render_board(positions)
@@ -93,7 +101,8 @@ async def listen_for_updates():
                     print("Invalid board data received.")
             except json.JSONDecodeError:
                 print("Received non-JSON message.")
-                
+
+
 b = Scrabble()
 save_dict = b.to_save_dict()
 print(save_dict)
@@ -112,6 +121,7 @@ def test_local_board_rendering():
     save_dict = {"board": board}
     clear_terminal()
     print_board_from_save_dict(save_dict)
+
 
 if __name__ == "__main__":
     b = Scrabble()

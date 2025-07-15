@@ -1,11 +1,13 @@
-import sys
 import os
+import sys
 from typing import List, Optional
+
+import redis.asyncio as aredis
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
-from ram.scrabble import Board, Player, WordList,TileBank, create_tile_bag, Tile
-import redis.asyncio as aredis
 
+from ram.scrabble import (Board, Player, Tile, TileBank, WordList,
+                          create_tile_bag)
 
 WORD_LIST = WordList.load_word_list()
 
@@ -24,18 +26,21 @@ class Location(BaseModel):
     y: int
     is_blank: bool = False  # Corresponds to Tile.is_blank field
 
+
 class MakeMoveRequest(BaseModel):
     """
     Body for POST /make_move
 
-    • `locations`   list of tiles you want to place  
+    • `locations`   list of tiles you want to place
     • `player_index` (optional) 0-based index of the player making the move.
         – Omit this field to default to the current player whose turn it is.
     """
+
     locations: List[Location]
     player_index: Optional[int] = Field(
         None, ge=0, description="0-based index; defaults to current player"
     )
+
 
 # A single (global) game instance for simplicity. For multi-game support, switch
 # to a dict keyed by a game_id.
@@ -55,11 +60,10 @@ def start_game(req: StartGameRequest):
     players = [Player() for _ in req.players]
     tile_bag = create_tile_bag()
 
-    _board  = Board(players=players, tile_bag=tile_bag)
+    _board = Board(players=players, tile_bag=tile_bag)
     _board.initialize(WORD_LIST)
 
     return {"message": "Game started", "turn": _board.turn}
-    
 
 
 @app.post("/make_move")
@@ -95,11 +99,21 @@ def make_move(req: MakeMoveRequest):
 
     return {"message": "Move applied", "turn": board.turn}
 
+
 @app.get("/board")
 def get_board():
     board = _assert_board_exists()
     # Convert BTile objects to dict with letter & multiplier for ease of front-end use.
-    simple_board = [[{"letter": getattr(cell, "letter", ""), "mult": getattr(cell, "multiplier", 0)} for cell in row] for row in board.board]
+    simple_board = [
+        [
+            {
+                "letter": getattr(cell, "letter", ""),
+                "mult": getattr(cell, "multiplier", 0),
+            }
+            for cell in row
+        ]
+        for row in board.board
+    ]
     return {"board": simple_board, "turn": board.turn}
 
 
@@ -118,12 +132,18 @@ def status():
     board = _assert_board_exists()
     return {
         "turn": board.turn,
-        "current_player_index": board.turn % len(board.players) if board.players else None,
+        "current_player_index": (
+            board.turn % len(board.players) if board.players else None
+        ),
     }
 
+
 @app.get("/hand")
-def get_hand(player: Optional[int] = Query(None, ge=0,
-                                           description="0-based index; omit for current player")):
+def get_hand(
+    player: Optional[int] = Query(
+        None, ge=0, description="0-based index; omit for current player"
+    )
+):
     """
     Return the word-bank (hand) for a player.
 
@@ -132,16 +152,17 @@ def get_hand(player: Optional[int] = Query(None, ge=0,
       with whatever the backend serialiser produces.
     """
     board = _assert_board_exists()
-    save_dict = board.to_save_dict()          # ← single source of truth
+    save_dict = board.to_save_dict()  # ← single source of truth
 
     idx = save_dict["current_player"] if player is None else player
     if idx >= len(save_dict["players"]):
         raise HTTPException(status_code=400, detail="player index out of range")
 
-    raw_hand = save_dict["players"][idx]["hand"]           # list of (letter, is_blank)
+    raw_hand = save_dict["players"][idx]["hand"]  # list of (letter, is_blank)
     hand = [{"letter": l, "is_blank": b} for l, b in raw_hand]
 
     return {"player_index": idx, "hand": hand}
+
 
 @app.post("/save")
 async def save_board():

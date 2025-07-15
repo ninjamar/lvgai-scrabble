@@ -1,10 +1,11 @@
+import json
+from dataclasses import asdict, dataclass, field
+
+import ipdb
+import redis
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from dataclasses import dataclass, field, asdict
-import redis
 from redis.commands.json.path import Path
-import json
-import ipdb
 
 r = redis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 REDIS_KEY = "tic_tac_toe:game_state"

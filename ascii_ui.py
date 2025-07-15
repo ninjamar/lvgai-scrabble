@@ -1,8 +1,9 @@
+import argparse
 import asyncio
-import websockets
 import json
 import os
-import argparse
+
+import websockets
 
 # Parse required --team argument
 parser = argparse.ArgumentParser(description="ASCII UI for Tic Tac Toe")

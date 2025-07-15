@@ -33,21 +33,21 @@
    +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
 ^y
 """
+
 """
-[ ] TODO: Implement move validation
+[x] TODO: Implement move validation
 [ ] TODO: Implement scoring
 [ ] TODO: Test code
 """
 
-from pathlib import Path
-import json
-import dataclasses
-import redis.asyncio as aredis
 import copy
+import dataclasses
+import json
 import random
-
+from pathlib import Path
 from typing import ClassVar
 
+import redis.asyncio as aredis
 
 rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 REDIS_KEY = "scrabble:game_state"
@@ -106,9 +106,8 @@ class Tile:
             multiplier=obj.multiplier,
             x=obj.x,
             y=obj.y,
-            is_blank=obj.is_blank
+            is_blank=obj.is_blank,
         )
-
 
 
 def create_tile_bag():
@@ -159,7 +158,7 @@ def create_tile_bag():
 def from_dict(cls, d: dict):
     kwargs = {}
     for f in dataclasses.fields(cls):
-        if not f.init: # init=False
+        if not f.init:  # init=False
             continue
 
         value = d.get(f.name)
@@ -167,20 +166,26 @@ def from_dict(cls, d: dict):
             if isinstance(value, dict):
                 kwargs[f.name] = from_dict(f.type, value)
             elif isinstance(value, list):
-                kwargs[f.name] = [from_dict(f.type, v) if isinstance(v, dict) else v for v in value]
+                kwargs[f.name] = [
+                    from_dict(f.type, v) if isinstance(v, dict) else v for v in value
+                ]
             else:
                 kwargs[f.name] = value
-        elif (isinstance(value, list) and
-              hasattr(f.type, "__origin__") and
-              f.type.__origin__ is list and
-              dataclasses.is_dataclass(f.type.__args__[0])):
+        elif (
+            isinstance(value, list)
+            and hasattr(f.type, "__origin__")
+            and f.type.__origin__ is list
+            and dataclasses.is_dataclass(f.type.__args__[0])
+        ):
             # For list of dataclasses
             item_type = f.type.__args__[0]
-            kwargs[f.name] = [from_dict(item_type, item) if isinstance(item, dict) else item for item in value]
+            kwargs[f.name] = [
+                from_dict(item_type, item) if isinstance(item, dict) else item
+                for item in value
+            ]
         else:
             kwargs[f.name] = value
     return cls(**kwargs)
-
 
 
 @dataclasses.dataclass
@@ -200,10 +205,12 @@ class TileBank:
     def remove_tiles(self, tiles: list[Tile]):
         for tile in tiles:
             for i, hand_tile in enumerate(self.hand):
-                if hand_tile.letter == tile.letter and hand_tile.is_blank == tile.is_blank:
+                if (
+                    hand_tile.letter == tile.letter
+                    and hand_tile.is_blank == tile.is_blank
+                ):
                     del self.hand[i]
                     break  # Remove only one instance per tile
-
 
     def __contains__(self, item):
         for hand_tile in self.hand:
@@ -229,10 +236,15 @@ class Board:
         return [
             [Tile(letter="", x=cell, y=row) for cell in range(15)] for row in range(15)
         ]
+
     # TODO: Single line
-    board: list[list] = dataclasses.field(default_factory=lambda: Board.initialize_board())
+    board: list[list] = dataclasses.field(
+        default_factory=lambda: Board.initialize_board()
+    )
     # Word list needs to stay client side -- so do not make as dict work on this
-    word_list: WordList = dataclasses.field(default=None, repr=False, compare=False, init=False)
+    word_list: WordList = dataclasses.field(
+        default=None, repr=False, compare=False, init=False
+    )
 
     turn: int = 0
     current_player: Player = None
@@ -254,12 +266,14 @@ class Board:
         # [ ] Words can be horizontal or vertical
         if i_am != self.current_player:
             raise ValueError("Incorrect player selected")
-        
+
         # locations: [(letter, x, y), ...]
         # If it is the first move, it must be on the center square
         if self.turn == 0:
             if not any(tile.x == 7 and tile.y == 7 for tile in move):
-                raise ValueError("First move must contain a letter on the center square")
+                raise ValueError(
+                    "First move must contain a letter on the center square"
+                )
 
         if not all(loc in self.current_player.word_bank for loc in move):
             raise ValueError("All tiles must be in the word bank")
@@ -267,13 +281,15 @@ class Board:
         # https://stackoverflow.com/a/433161
         # Check if same column or check if same row
 
-        if not (all(loc.x == move[0].x for loc in move) or 
-            all(loc.y == move[0].y for loc in move)):
+        if not (
+            all(loc.x == move[0].x for loc in move)
+            or all(loc.y == move[0].y for loc in move)
+        ):
             raise ValueError("All moves must be in the same column or row")
-        
+
         if not self.is_contiguous(move):
             raise ValueError("Move is not contiguous")
-        
+
         if self.turn > 0 and not self.touches_existing_tile(move, is_first_turn=False):
             raise ValueError("Move must touch an existing tile")
         """
@@ -368,27 +384,27 @@ class Board:
             return True
 
         return False
-    
+
     def touches_existing_tile(self, move: list[Tile], is_first_turn):
         if is_first_turn:
             return False
-        
+
         positions = {(t.x, t.y) for t in move}
         for tile in move:
-            for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 x, y = tile.x + dx, tile.y + dy
                 if 0 <= x < 15 and 0 <= y < 15:
                     # If not a just-placed tile and has a letter
                     if (x, y) not in positions and self.board[y][x].letter:
                         return True
         return False
-    
+
     def extract_words(self, move: list[Tile], board_post_move: list):
         words = []
         new_pos = {(t.x, t.y): t for t in move}
 
         vertical = len({t.x for t in move}) == 1
-        primary_axis = 'y' if vertical else 'x'
+        primary_axis = "y" if vertical else "x"
 
         # --- build main word ---
         if vertical:
@@ -415,35 +431,43 @@ class Board:
                 tiles.append(new_pos.get((x, y), board_post_move[y][x]))
                 x += 1
 
-        word = ''.join(t.letter for t in tiles)
+        word = "".join(t.letter for t in tiles)
         words.append((word, tiles))
 
         # --- build cross words ---
         for t in move:
-            if vertical:   # cross words are horizontal
-                horiz_tiles = list(self._scan(t.x, t.y, -1, 0))[::-1] + [t] + list(self._scan(t.x, t.y, 1, 0))
+            if vertical:  # cross words are horizontal
+                horiz_tiles = (
+                    list(self._scan(t.x, t.y, -1, 0))[::-1]
+                    + [t]
+                    + list(self._scan(t.x, t.y, 1, 0))
+                )
                 if len(horiz_tiles) > 1:
-                    words.append((''.join(tt.letter for tt in horiz_tiles), horiz_tiles))
-            else:          # cross words are vertical
-                vert_tiles = list(self._scan(t.x, t.y, 0, -1))[::-1] + [t] + list(self._scan(t.x, t.y, 0, 1))
+                    words.append(
+                        ("".join(tt.letter for tt in horiz_tiles), horiz_tiles)
+                    )
+            else:  # cross words are vertical
+                vert_tiles = (
+                    list(self._scan(t.x, t.y, 0, -1))[::-1]
+                    + [t]
+                    + list(self._scan(t.x, t.y, 0, 1))
+                )
                 if len(vert_tiles) > 1:
-                    words.append((''.join(tt.letter for tt in vert_tiles), vert_tiles))
+                    words.append(("".join(tt.letter for tt in vert_tiles), vert_tiles))
 
         return words
-    
+
     def _scan(self, start_x, start_y, dx, dy):
         x, y = start_x + dx, start_y + dy
         while 0 <= x < 15 and 0 <= y < 15 and self.board[y][x].letter:
             yield self.board[y][x]
             x += dx
             y += dy
-    
+
     def to_save_dict(self):
         return {
             "players": [
-                {
-                    "hand": [(t.letter, t.is_blank) for t in player.word_bank.hand]
-                }
+                {"hand": [(t.letter, t.is_blank) for t in player.word_bank.hand]}
                 for player in self.players
             ],
             "tile_bag": [(t.letter, t.is_blank) for t in self.tile_bag],
@@ -451,7 +475,7 @@ class Board:
             "turn": self.turn,
             "current_player": self.players.index(self.current_player),
         }
-    
+
     @classmethod
     def from_save_dict(cls, data, word_list):
         # Reconstruct player hands
@@ -481,7 +505,6 @@ class Board:
         board_obj.word_list = word_list  # inject client word list
         return board_obj
 
-
     def serialize(self):
         return json.dumps(self.to_save_dict())
 
@@ -493,6 +516,7 @@ class Board:
         data = await rd.json().get(REDIS_KEY)
         obj = Board.from_save_dict(data, word_list)
         return obj
+
 
 def print_board_from_save_dict(save_dict):
     board = save_dict["board"]
@@ -517,21 +541,24 @@ if __name__ == "__main__":
     b.initialize(word_list)
 
     p1.word_bank.hand = [
-        Tile(letter='H'),
-        Tile(letter='E'),
-        Tile(letter='L'),
-        Tile(letter='L'),
-        Tile(letter='O')
+        Tile(letter="H"),
+        Tile(letter="E"),
+        Tile(letter="L"),
+        Tile(letter="L"),
+        Tile(letter="O"),
     ]
 
     print_board_from_save_dict(b.to_save_dict())
 
-    b.make_move([
-        Tile(letter='H', x=5, y=7),
-        Tile(letter='E', x=6, y=7),
-        Tile(letter='L', x=7, y=7),
-        Tile(letter='L', x=8, y=7),
-        Tile(letter='O', x=9, y=7)
-    ], p1)
-    
+    b.make_move(
+        [
+            Tile(letter="H", x=5, y=7),
+            Tile(letter="E", x=6, y=7),
+            Tile(letter="L", x=7, y=7),
+            Tile(letter="L", x=8, y=7),
+            Tile(letter="O", x=9, y=7),
+        ],
+        p1,
+    )
+
     print_board_from_save_dict(b.to_save_dict())

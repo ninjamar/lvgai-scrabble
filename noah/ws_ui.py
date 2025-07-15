@@ -7,7 +7,7 @@ import asyncio
 
 # Parse required --team argument
 parser = argparse.ArgumentParser(description="ASCII UI for Scrabble")
-parser.add_argument("--team", required=True, help="Team 4")
+parser.add_argument("--team", required=True, help="Team number (e.g., 4)")
 args = parser.parse_args()
 team_number = int(args.team)
 team_number_str = f"{team_number:02d}"
@@ -29,11 +29,20 @@ def format_cell(cell_value, index):
 
 async def get_state(client: httpx.AsyncClient):
     response = await client.get(f"{BASE_URL}/state")
+    if response.status_code != 200:
+        return None
     return response.json()
 
-async def reset_board(client: httpx.AsyncClient):
-    response = await client.post(f"{BASE_URL}/reset")
+async def start_game(client: httpx.AsyncClient):
+    """Start a new game with 2 players."""
+    response = await client.post(f"{BASE_URL}/start_game", json={"num_players": 2})
     return response.json()
+
+async def get_hand(client: httpx.AsyncClient, player_index: int):
+    response = await client.get(f"{BASE_URL}/hand", params={"player": player_index})
+    if response.status_code != 200:
+        return []
+    return response.json()["hand"]
 
 async def render_board(board):
     size = 15
@@ -79,14 +88,32 @@ async def listen_for_updates():
 
 async def main():
     async with httpx.AsyncClient() as client:
-        await reset_board(client)
+        # Try to get current state, if no game exists, start a new one
+        state = await get_state(client)
+        if state is None:
+            print("No game found, starting a new game...")
+            await start_game(client)
+            state = await get_state(client)
+
+        if state is None:
+            print("Failed to start game. Exiting.")
+            return
+
+        current_player = 0
 
         while True:
             clear_terminal()
 
             # Show board
             state = await get_state(client)
+            if state is None:
+                print("Game state unavailable. Exiting.")
+                break
             await print_board_from_save_dict(state)
+
+            # Show current player's hand
+            hand = await get_hand(client, current_player)
+            print(f"\nPlayer {current_player}'s tiles:", " ".join(tile["letter"].upper() for tile in hand))
 
             print("\nMake a move (or type 'exit' to quit)")
             word = input("Enter a word: ").strip()
@@ -109,17 +136,19 @@ async def main():
 
             payload = {
                 "locations": tiles,
-                "player_index": 0  # You can change this to support turn switching
+                "player_index": current_player
             }
 
             response = await client.post(f"{BASE_URL}/make_move", json=payload)
 
-            if response.status_code != 200:
-                print("❌ Invalid move:", response.json()["detail"])
+            if response.status_code != 200 or not response.json().get("success", False):
+                print("❌ Invalid move:", response.json().get("message", "Unknown error"))
                 input("Press Enter to try again...")
             else:
                 print("✅ Move accepted!")
+                current_player = (current_player + 1) % 2  # Alternate players
                 input("Press Enter to continue...")
 
 if __name__ == "__main__":
     asyncio.run(main())
+

@@ -524,7 +524,7 @@ if __name__ == "__main__":
         Tile(letter='O')
     ]
 
-    _print_board_from_save_dict(b.to_save_dict())
+    print_board_from_save_dict(b.to_save_dict())
 
     b.make_move([
         Tile(letter='H', x=5, y=7),
@@ -534,4 +534,4 @@ if __name__ == "__main__":
         Tile(letter='O', x=9, y=7)
     ], p1)
     
-    _print_board_from_save_dict(b.to_save_dict())
+    print_board_from_save_dict(b.to_save_dict())

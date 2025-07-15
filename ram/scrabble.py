@@ -40,10 +40,9 @@ ROOT_PATH = "."
 # https://stackoverflow.com/q/8421337
 rotate_list = lambda x: list(zip(*x[::-1]))
 
+
 def initialize_board():
-    return [
-        [Tile(letter="", x=cell, y=row) for cell in range(15)] for row in range(15)
-    ]
+    return [[Tile(letter="", x=cell, y=row) for cell in range(15)] for row in range(15)]
 
 
 @dataclasses.dataclass
@@ -219,9 +218,7 @@ class Board:
     tile_bag: list[Tile]
 
     # TODO: Single line
-    board: list[list] = dataclasses.field(
-        default_factory=initialize_board
-    )
+    board: list[list] = dataclasses.field(default_factory=initialize_board)
     # Word list needs to stay client side -- so do not make as dict work on this
     word_list: WordList = dataclasses.field(
         default=None, repr=False, compare=False, init=False
@@ -272,7 +269,7 @@ class Board:
 
         if self.turn > 0 and not self.touches_existing_tile(move, is_first_turn=False):
             raise ValueError("Move must touch an existing tile")
-        
+
         # 1 – lay tiles on a temporary board
         temp_board = copy.deepcopy(self.board)
         for tile in move:

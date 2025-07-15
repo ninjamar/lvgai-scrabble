@@ -1,12 +1,13 @@
+import asyncio
+import traceback
 from typing import List, Optional
 
+import redis.asyncio as aredis
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
-import traceback
 
-import redis.asyncio as aredis
-from ram.scrabble import Board, Player, WordList, create_tile_bag, Tile
-import asyncio
+from ram.scrabble import Board, Player, Tile, WordList, create_tile_bag
+
 
 async def test_redis():
     r = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
@@ -15,6 +16,7 @@ async def test_redis():
         print("Redis connection successful:", pong)
     except Exception as e:
         print("Redis error:", e)
+
 
 asyncio.run(test_redis())
 
@@ -29,6 +31,7 @@ app = FastAPI(title="Scrabble Board API", version="0.2.0")
 _board: Optional[Board] = None
 
 # ========== Request Models ==========
+
 
 class StartGameRequest(BaseModel):
     num_players: int = Field(..., ge=2, le=4)
@@ -50,6 +53,7 @@ class MakeMoveRequest(BaseModel):
 
 # ========== Internal Utilities ==========
 
+
 def _assert_board_exists() -> Board:
     if _board is None:
         raise HTTPException(status_code=400, detail="Game has not been started.")
@@ -57,6 +61,7 @@ def _assert_board_exists() -> Board:
 
 
 # ========== Routes ==========
+
 
 @app.post("/start_game")
 def start_game(req: StartGameRequest):
@@ -117,7 +122,10 @@ def get_hand(player: Optional[int] = Query(None, ge=0)):
     raw_hand = save_dict["players"][idx]["hand"]
     # If raw_hand is a list of tuples like ('A', False)
     try:
-        hand = [{"letter": item["letter"], "is_blank": item["is_blank"]} for item in raw_hand]
+        hand = [
+            {"letter": item["letter"], "is_blank": item["is_blank"]}
+            for item in raw_hand
+        ]
     except Exception:
         # fallback in case it's already in dict format
         hand = raw_hand

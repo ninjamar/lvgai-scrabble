@@ -1,5 +1,6 @@
 import asyncio
 import time
+
 import redis.asyncio as aredis
 
 from .scrabble import Board, Player, WordList, create_tile_bag
@@ -12,7 +13,6 @@ async def main():
 
     b = Board(players=[Player(), Player()], tile_bag=create_tile_bag())
     b.initialize(word_list)
-
 
     now = time.time()
     await b.save_to_redis()

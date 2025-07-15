@@ -1,22 +1,14 @@
-import sys
-import os
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-import asyncio
-##sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from ram.scrabble import (Board, Player, Tile, TileBank, WordList,
+                          create_tile_bag)
 
-import dataclasses as _dc, importlib as _il
-from ram.scrabble import Board, Player, WordList,TileBank, create_tile_bag, Tile
 WORD_LIST = WordList.load_word_list()
 
-import redis.asyncio as aredis
-_rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 
-from ram.scrabble import TileBank
-# Patch TileBank.__init__ to make `hand` optional
 app = FastAPI(title="Scrabble Board API", version="0.2.0")
 
 
@@ -30,18 +22,21 @@ class Location(BaseModel):
     y: int
     is_blank: bool = False  # Corresponds to Tile.is_blank field
 
+
 class MakeMoveRequest(BaseModel):
     """
     Body for POST /make_move
 
-    • `locations`   list of tiles you want to place  
+    • `locations`   list of tiles you want to place
     • `player_index` (optional) 0-based index of the player making the move.
         – Omit this field to default to the current player whose turn it is.
     """
+
     locations: List[Location]
     player_index: Optional[int] = Field(
         None, ge=0, description="0-based index; defaults to current player"
     )
+
 
 # A single (global) game instance for simplicity. For multi-game support, switch
 # to a dict keyed by a game_id.
@@ -61,11 +56,10 @@ def start_game(req: StartGameRequest):
     players = [Player() for _ in range(req.num_players)]
     tile_bag = create_tile_bag()
 
-    _board  = Board(players=players, tile_bag=tile_bag)
+    _board = Board(players=players, tile_bag=tile_bag)
     _board.initialize(WORD_LIST)
 
     return {"message": "Game started", "turn": _board.turn, "success": True}
-    
 
 
 @app.post("/make_move")
@@ -107,9 +101,13 @@ def status():
     board = _assert_board_exists()
     return board.to_save_dict()
 
+
 @app.get("/hand")
-def get_hand(player: Optional[int] = Query(None, ge=0,
-                                           description="0-based index; omit for current player")):
+def get_hand(
+    player: Optional[int] = Query(
+        None, ge=0, description="0-based index; omit for current player"
+    )
+):
     """
     Return the word-bank (hand) for a player.
 
@@ -118,16 +116,17 @@ def get_hand(player: Optional[int] = Query(None, ge=0,
       with whatever the backend serialiser produces.
     """
     board = _assert_board_exists()
-    save_dict = board.to_save_dict()          # ← single source of truth
+    save_dict = board.to_save_dict()  # ← single source of truth
 
     idx = save_dict["current_player"] if player is None else player
     if idx >= len(save_dict["players"]):
         return {"message": "player index out of range", "success": False}
 
-    hand = save_dict["players"][idx]["hand"]           # list of (letter, is_blank)
+    hand = save_dict["players"][idx]["hand"]  # list of (letter, is_blank)
     return {"player_index": idx, "hand": hand, "success": True}
 
-@app.post("/save") 
+
+@app.post("/save")
 async def save_board():
     """Persist the current board state to Redis."""
     board = _assert_board_exists()

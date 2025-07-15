@@ -1,10 +1,8 @@
-import argparse
-import asyncio
-import dataclasses
+import websockets
 import json
 import os
-
-import websockets
+import argparse
+from ram.scrabble import Board, WordList, Player, create_tile_bag
 
 # Parse required --team argument
 parser = argparse.ArgumentParser(description="ASCII UI for Scrabble")
@@ -32,18 +30,6 @@ def format_cell(cell_value, index):
         return cell_value  # Bonus like 'TW', 'DL', etc.
     else:
         return "."  # Empty cell
-
-
-@dataclasses.dataclass
-class Scrabble:
-    def __init__(self):
-        # Initialize an empty 15x15 board of (letter, bonus) tuples
-        self.board = [[("", "") for _ in range(15)] for _ in range(15)]
-        self.board[7][7] = ("H", "")
-        self.board[7][8] = ("I", "")  # You can change this test data
-
-    def to_save_dict(self):
-        return {"board": self.board}
 
 
 def render_board(board):
@@ -103,12 +89,6 @@ async def listen_for_updates():
                 print("Received non-JSON message.")
 
 
-b = Scrabble()
-save_dict = b.to_save_dict()
-print(save_dict)
-print_board_from_save_dict(save_dict)
-
-
 def test_local_board_rendering():
     # Simulate a save_dict with a board of letter/None tuples
     board = [[("", "") for _ in range(15)] for _ in range(15)]
@@ -124,7 +104,13 @@ def test_local_board_rendering():
 
 
 if __name__ == "__main__":
-    b = Scrabble()
+    word_list = WordList.load_word_list()
+
+    p1 = Player()
+    p2 = Player()
+    b = Board(players=[p1, p2], tile_bag=create_tile_bag())
+    b.initialize(word_list)
+    
     save_dict = b.to_save_dict()
     print(save_dict)
     print_board_from_save_dict(save_dict)

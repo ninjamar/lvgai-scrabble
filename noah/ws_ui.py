@@ -3,7 +3,8 @@ import json
 import os
 import argparse
 from ram.scrabble import Board, WordList, Player, create_tile_bag
-
+import httpx
+import asyncio
 # Parse required --team argument
 parser = argparse.ArgumentParser(description="ASCII UI for Scrabble")
 parser.add_argument("--team", required=True, help="Team 4")
@@ -13,7 +14,7 @@ team_number_str = f"{team_number:02d}"
 
 # Build the WebSocket URL dynamically
 WEBSOCKET_URL = "ws://ai.thewcl.com:8704"
-
+BASE_URL = "http://localhost:8000"
 
 def clear_terminal():
     os.system("cls" if os.name == "nt" else "clear")
@@ -30,9 +31,34 @@ def format_cell(cell_value, index):
         return cell_value  # Bonus like 'TW', 'DL', etc.
     else:
         return "."  # Empty cell
+    
+async def get_state(client: httpx.AsyncClient):
+    response = await client.get(f"{BASE_URL}/state")
+    return response.json()
+
+async def post_move(client: httpx.AsyncClient, player: int, index: int):
+    response = await client.post(f"{BASE_URL}/move", json={"player": player, "index": index})
+    return response.json()
+
+async def make_move(client: httpx.AsyncClient, player: int, index: int):
+    return {
+        "locations": [
+            {
+                "letter": "String",
+                "x": 0,
+                "y": 0,
+                "is_blank": False
+            }
+        ]
+    }
+
+async def reset_board(client: httpx.AsyncClient):
+    response = await client.post(f"{BASE_URL}/reset")
+    return response.json()
+    
 
 
-def render_board(board):
+async def render_board(board):
     """
     board: a 15x15 2D list where each cell holds a letter, a bonus marker like 'DL', or None
     """
@@ -49,7 +75,7 @@ def render_board(board):
         print(f"{str(row_index + 1).rjust(2)} " + " ".join(row_cells))
 
 
-def print_board_from_save_dict(save_dict):
+async def print_board_from_save_dict(save_dict):
     board = save_dict["board"]
     print("   " + " ".join(f"{i:2}" for i in range(len(board[0]))))
     print("  +" + "---" * len(board[0]) + "+")
@@ -72,7 +98,7 @@ async def listen_for_updates():
                 positions = data.get("positions")
                 if "board" in data:
                     clear_terminal()
-                    print_board_from_save_dict(data)
+                    await print_board_from_save_dict(data)
 
                 elif (
                     isinstance(positions, list)
@@ -82,14 +108,14 @@ async def listen_for_updates():
                     )
                 ):
                     clear_terminal()
-                    render_board(positions)
+                    await render_board(positions)
                 else:
                     print("Invalid board data received.")
             except json.JSONDecodeError:
                 print("Received non-JSON message.")
 
 
-def test_local_board_rendering():
+async def test_local_board_rendering():
     # Simulate a save_dict with a board of letter/None tuples
     board = [[("", "") for _ in range(15)] for _ in range(15)]
     board[7][7] = ("H", "")  # Put a single tile at center
@@ -100,10 +126,25 @@ def test_local_board_rendering():
 
     save_dict = {"board": board}
     clear_terminal()
-    print_board_from_save_dict(save_dict)
+    await print_board_from_save_dict(save_dict)
+
+async def main():
+    async with httpx.AsyncClient() as client:
+        # Example: Reset the board
+        await reset_board(client)
+
+        # Example: Get the current board state
+        state = await get_state(client)
+
+        # Print the board
+        await print_board_from_save_dict(state)
+
+        # Example: Post a move (replace with real params)
+        # await post_move(client, player=0, index=42)
 
 
 if __name__ == "__main__":
+    
     word_list = WordList.load_word_list()
 
     p1 = Player()
@@ -116,3 +157,4 @@ if __name__ == "__main__":
     print_board_from_save_dict(save_dict)
     # test_local_board_rendering()
     # asyncio.run(listen_for_updates())
+    asyncio.run(main())

@@ -17,23 +17,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # fixed the patch becomes a harmless no-op.
 # ---------------------------------------------------------------------------
 import dataclasses as _dc, importlib as _il
-from ram.scrabble import Board, Player, WordList
+from ram.scrabble import Board, Player, WordList 
 
 # ---------------------------------------------------------------------------
 # Optional symbols with graceful fallbacks
 # ---------------------------------------------------------------------------
 from ram.scrabble import Tile as _Tile  # noqa: N812
-
-from ram.scrabble import Move as _Move  # noqa: N812
 Tile = _Tile
-Move = _Move
-# WordBank may be missing; fallback to TileBank if necessary
-from ram.scrabble import WordBank as _WB
-
-_WB.__name__ = "WordBank"  # cosmetic
-WordBank = _WB
 # Provide backward-compatibility aliases expected by earlier code
-PWordBank = WordBank
 BTile = Tile
 MLocation = Tile
 
@@ -80,16 +71,8 @@ def _assert_board_exists() -> Board:
 
 @app.post("/start_game")
 def start_game(req: StartGameRequest):
-    """Create a new Board and players."""
-    global _board
-    # For now, create empty hands; tile handling can be delegated to Board logic if implemented later.
-    players = [Player(word_bank=WordBank(hand=[])) for _ in req.players]
-    _board = Board(players=players, current_player=players[0], word_list=_empty_word_list())
-    return {
-        "message": "Game started",
-        "players": req.players,
-        "current_player_index": _board.turn,
-    }
+    board = Board.initialize_board()
+    
 
 
 @app.post("/make_move")
@@ -122,20 +105,6 @@ def validate():
     return {"message": "All words valid"}
 
 
-# Removed obsolete get_rack endpoint which referenced non-existent game methods.
-    """Return the rack letters for the specified player (sorted string)."""
-    game = _assert_game_exists()
-    try:
-        rack = game.get_player_rack(player)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Player not found")
-    return {"player": player, "rack": rack}
-
-
-
-# Removed obsolete switch_turn helper that referenced non-existent game methods.
-
-
 @app.get("/status")
 def status():
     board = _assert_board_exists()
@@ -166,4 +135,3 @@ def end_game():
     global _board
     _board = None
     return {"message": "Game reset"}
-# Removed duplicate end_game implementation that referenced non-existent game methods.

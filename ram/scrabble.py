@@ -36,6 +36,7 @@
 """
 [ ] TODO: Implement move validation
 [ ] TODO: Implement scoring
+[ ] TODO: Test code
 """
 
 import json
@@ -309,8 +310,38 @@ class Board:
                     return False
         return True
 
-    def to_dict(self):
-        return dataclasses.asdict(self)
+    def is_contiguous(self, move: list[Tile]):
+        """
+        1. If move is empty → output False.
+
+        2. Decide orientation
+        a. If every tile has the same X coordinate → orientation = vertical, fixed_column = that X.
+        b. Else-if every tile has the same Y coordinate → orientation = horizontal, fixed_row = that Y.
+        c. Otherwise → output False.   // not a single row or column
+
+        3. Let low and high be the minimum and maximum indices
+        • If vertical → indices are the Y values of move tiles.
+        • If horizontal → indices are the X values of move tiles.
+
+        4. For each index i from low to high (inclusive):
+            If orientation is vertical:
+                Check square (fixed_column, i).
+            Else:  // horizontal
+                Check square (i, fixed_row).
+
+            A square is “occupied” if
+                – it contains a newly placed tile, OR
+                – the board already holds a letter there.
+
+            If any square between low and high is not occupied → output False.
+
+        5. All squares were occupied → output True.
+        """
+        pass
+    def touches_existing_tile(self, move: list[Tile], is_first_turn):
+        pass
+    def extract(move: list[Tile], board_post_move: list):
+        pass
     
     def to_save_dict(self):
         return {
@@ -325,6 +356,7 @@ class Board:
             "turn": self.turn,
             "current_player": self.players.index(self.current_player),
         }
+    
     @classmethod
     def from_save_dict(cls, data, word_list):
         # Reconstruct player hands
@@ -356,7 +388,7 @@ class Board:
 
 
     def serialize(self):
-        return json.dumps(self.to_dict())
+        return json.dumps(self.to_save_dict())
 
     async def save_to_redis(self):
         return await rd.json().set(REDIS_KEY, ROOT_PATH, self.to_save_dict())
@@ -366,3 +398,4 @@ class Board:
         data = await rd.json().get(REDIS_KEY)
         obj = Board.from_save_dict(data, word_list)
         return obj
+

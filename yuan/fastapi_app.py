@@ -73,6 +73,13 @@ def _forgiving_dataclass(cls=None, **kwargs):
             )
         finally:
             _dc.dataclass = _forgiving_dataclass  # reinstate wrapper
+        # If this is TileBank, patch __init__ to allow optional hand.
+        if cls.__name__ == "TileBank":
+            def _tb_init(self, hand=None):
+                if hand is None:
+                    hand = []
+                self.hand = hand
+            cls.__init__ = _tb_init
         return cls
 
     # Fall back to the standard behaviour for well-formed classes
@@ -95,6 +102,9 @@ MLocation = Tile
 # empty WordList instance.
 # ---------------------------------------------------------------------------
 Board.__dataclass_fields__["word_list"].default_factory = lambda: WordList(word_list=[])
+# Fix Player.word_bank default factory which incorrectly instantiates TileBank()
+from ram.scrabble import TileBank
+Player.__dataclass_fields__["word_bank"].default_factory = lambda: TileBank(hand=[])
 
 # Restore the original decorator to avoid affecting unrelated code
 _dc.dataclass = _orig_dataclass
@@ -110,7 +120,6 @@ class Location(BaseModel):
     letter: str
     x: int
     y: int
-
 
 class MakeMoveRequest(BaseModel):
     locations: List[Location]
@@ -146,9 +155,7 @@ def make_move(req: MakeMoveRequest):
     """Apply a move consisting of multiple tile placements."""
     board = _assert_board_exists()
     try:
-        move_locs = [
-            MLocation(letter=loc.letter, x=loc.x, y=loc.y) for loc in req.locations
-        ]
+        move_locs = [MLocation(letter=loc.letter, x=loc.x, y=loc.y) for loc in req.locations]
         move = Move(locations=move_locs)
         board.make_move(move)
     except Exception as exc:
@@ -159,17 +166,8 @@ def make_move(req: MakeMoveRequest):
 @app.get("/board")
 def get_board():
     board = _assert_board_exists()
-    # Convert Tile objects to dict with letter & multiplier for ease of front-end use.
-    simple_board = [
-        [
-            {
-                "letter": getattr(cell, "letter", ""),
-                "mult": getattr(cell, "multiplier", 1),
-            }
-            for cell in row
-        ]
-        for row in board.board
-    ]
+    # Convert BTile objects to dict with letter & multiplier for ease of front-end use.
+    simple_board = [[{"letter": getattr(cell, "letter", ""), "mult": getattr(cell, "multiplier", 1)} for cell in row] for row in board.board]
     return {"board": simple_board, "turn": board.turn}
 
 
@@ -194,6 +192,7 @@ def get_rack(player: str):
     return {"player": player, "rack": rack}
 
 
+
 def switch_turn():
     """Manually advance to the next player's turn."""
     game = _assert_game_exists()
@@ -206,9 +205,7 @@ def status():
     board = _assert_board_exists()
     return {
         "turn": board.turn,
-        "current_player_index": (
-            board.turn % len(board.players) if board.players else None
-        ),
+        "current_player_index": board.turn % len(board.players) if board.players else None,
     }
 
 
@@ -217,8 +214,6 @@ def end_game():
     global _board
     _board = None
     return {"message": "Game reset"}
-
-
 def end_game():
     """End the current game and return final scores."""
     game = _assert_game_exists()

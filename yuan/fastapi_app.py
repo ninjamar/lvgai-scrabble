@@ -15,19 +15,13 @@ WORD_LIST = WordList.load_word_list()
 import redis.asyncio as aredis
 _rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 
-if not hasattr(Board, "_patched_save"):
-    async def _save_root(self):
-        return await _rd.json().set("scrabble:game_state", "$", self.to_save_dict())
-    Board.save_to_redis = _save_root      # type: ignore[attr-defined]
-    Board._patched_save = True
-
 from ram.scrabble import TileBank
 # Patch TileBank.__init__ to make `hand` optional
 app = FastAPI(title="Scrabble Board API", version="0.2.0")
 
 
 class StartGameRequest(BaseModel):
-    players: List[str] = Field(..., min_items=1)
+    num_players: int = Field(..., ge=2, le=4)
 
 
 class Location(BaseModel):
@@ -64,13 +58,13 @@ def _assert_board_exists() -> Board:
 def start_game(req: StartGameRequest):
     global _board
 
-    players = [Player() for _ in req.players]
+    players = [Player() for _ in range(req.num_players)]
     tile_bag = create_tile_bag()
 
     _board  = Board(players=players, tile_bag=tile_bag)
     _board.initialize(WORD_LIST)
 
-    return {"message": "Game started", "turn": _board.turn}
+    return {"message": "Game started", "turn": _board.turn, "success": True}
     
 
 
@@ -101,20 +95,11 @@ async def make_move(req: MakeMoveRequest):
 
     # delegate to backend; it will raise on illegal moves
     try:
-        board.make_move(tiles, player_obj)
+        move = board.make_move(tiles, player_obj)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"message": str(exc), "success": False}
     await board.save_to_redis()
-    return {"message": "Move applied", "turn": board.turn}
-
-@app.get("/validate")
-def validate():
-    board = _assert_board_exists()
-    try:
-        board.validate_words()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"message": "All words valid"}
+    return {"message": "Move applied", "success": True}
 
 
 @app.get("/state")
@@ -137,19 +122,17 @@ def get_hand(player: Optional[int] = Query(None, ge=0,
 
     idx = save_dict["current_player"] if player is None else player
     if idx >= len(save_dict["players"]):
-        raise HTTPException(status_code=400, detail="player index out of range")
+        return {"message": "player index out of range", "success": False}
 
-    raw_hand = save_dict["players"][idx]["hand"]           # list of (letter, is_blank)
-    hand = [{"letter": l, "is_blank": b} for l, b in raw_hand]
-
-    return {"player_index": idx, "hand": hand}
+    hand = save_dict["players"][idx]["hand"]           # list of (letter, is_blank)
+    return {"player_index": idx, "hand": hand, "success": True}
 
 @app.post("/save") 
 async def save_board():
     """Persist the current board state to Redis."""
     board = _assert_board_exists()
     await board.save_to_redis()
-    return {"message": "Board saved to Redis"}
+    return {"message": "Board saved to Redis", "success": True}
 
 
 @app.get("/load")
@@ -157,11 +140,11 @@ async def load_board():
     """Load the board state from Redis into memory."""
     global _board
     _board = await Board.load_from_redis(WORD_LIST)
-    return {"message": "Board loaded", "turn": _board.turn}
+    return {"message": "Board loaded", "turn": _board.turn, "success": True}
 
 
 @app.post("/end_game")
 def end_game():
     global _board
     _board = None
-    return {"message": "Game reset"}
+    return {"message": "Game reset", "success": True}

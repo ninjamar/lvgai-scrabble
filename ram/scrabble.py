@@ -39,6 +39,7 @@
 [ ] TODO: Test code
 """
 
+from pathlib import Path
 import json
 import dataclasses
 import redis.asyncio as aredis
@@ -69,7 +70,7 @@ class WordList:
             return cls(word_list=f.read().splitlines())
 
     def is_valid_word(self, word):
-        return word in self.word_list
+        return word.lower() in self.word_list
 
 
 @dataclasses.dataclass
@@ -198,10 +199,17 @@ class TileBank:
 
     def remove_tiles(self, tiles: list[Tile]):
         for tile in tiles:
-            self.hand.remove(tile)
+            for i, hand_tile in enumerate(self.hand):
+                if hand_tile.letter == tile.letter and hand_tile.is_blank == tile.is_blank:
+                    del self.hand[i]
+                    break  # Remove only one instance per tile
+
 
     def __contains__(self, item):
-        return item in self.hand
+        for hand_tile in self.hand:
+            if hand_tile.letter == item.letter and hand_tile.is_blank == item.is_blank:
+                return True
+        return False
 
 
 @dataclasses.dataclass
@@ -236,7 +244,7 @@ class Board:
         for player in self.players:
             player.word_bank.get_new_hand(self.tile_bag)
 
-    def make_move(self, move: list[Tile]):
+    def make_move(self, move: list[Tile], i_am: Player) -> bool:
         # https://playscrabble.com/news-blog/scrabble-rules-official-scrabble-web-games-rules-play-scrabble
         # [x] If it is the first move, it must be on the center square
         # [x] Validate all values -- they must all be in the word bank
@@ -244,21 +252,23 @@ class Board:
         # [ ] There should be no incomplete words at the end of the turn
         # [ ] Word must be two letters
         # [ ] Words can be horizontal or vertical
-
+        if i_am != self.current_player:
+            raise ValueError("Incorrect player selected")
+        
         # locations: [(letter, x, y), ...]
         # If it is the first move, it must be on the center square
         if self.turn == 0:
-            if move[0].x != 7 or move[0].y != 7:
-                raise ValueError("First move must be on the center square")
+            if not any(tile.x == 7 and tile.y == 7 for tile in move):
+                raise ValueError("First move must contain a letter on the center square")
 
         if not all(loc in self.current_player.word_bank for loc in move):
             raise ValueError("All tiles must be in the word bank")
 
         # https://stackoverflow.com/a/433161
         # Check if same column or check if same row
-        if bool(all(loc.x == move[0].x for loc in move)) != bool(
-            all(loc.y == move[0].y for loc in move)
-        ):
+
+        if not (all(loc.x == move[0].x for loc in move) or 
+            all(loc.y == move[0].y for loc in move)):
             raise ValueError("All moves must be in the same column or row")
         
         if not self.is_contiguous(move):
@@ -334,32 +344,6 @@ class Board:
         return True
 
     def is_contiguous(self, move: list[Tile]):
-        """
-        1. If move is empty → output False.
-
-        2. Decide orientation
-        a. If every tile has the same X coordinate → orientation = vertical, fixed_column = that X.
-        b. Else-if every tile has the same Y coordinate → orientation = horizontal, fixed_row = that Y.
-        c. Otherwise → output False.   // not a single row or column
-
-        3. Let low and high be the minimum and maximum indices
-        • If vertical → indices are the Y values of move tiles.
-        • If horizontal → indices are the X values of move tiles.
-
-        4. For each index i from low to high (inclusive):
-            If orientation is vertical:
-                Check square (fixed_column, i).
-            Else:  // horizontal
-                Check square (i, fixed_row).
-
-            A square is “occupied” if
-                – it contains a newly placed tile, OR
-                – the board already holds a letter there.
-
-            If any square between low and high is not occupied → output False.
-
-        5. All squares were occupied → output True.
-        """
         if not move:
             return False
 
@@ -510,3 +494,44 @@ class Board:
         obj = Board.from_save_dict(data, word_list)
         return obj
 
+def print_board_from_save_dict(save_dict):
+    board = save_dict["board"]
+    print("   " + " ".join(f"{i:2}" for i in range(len(board[0]))))
+    print("  +" + "---" * len(board[0]) + "+")
+    for y, row in enumerate(board):
+        line = f"{y:2}|"
+        for cell in row:
+            letter = cell[0] if cell[0] else "."
+            line += f" {letter} "
+        line += "|"
+        print(line)
+    print("  +" + "---" * len(board[0]) + "+")
+
+
+if __name__ == "__main__":
+    word_list = WordList.load_word_list()
+
+    p1 = Player()
+    p2 = Player()
+    b = Board(players=[p1, p2], tile_bag=create_tile_bag())
+    b.initialize(word_list)
+
+    p1.word_bank.hand = [
+        Tile(letter='H'),
+        Tile(letter='E'),
+        Tile(letter='L'),
+        Tile(letter='L'),
+        Tile(letter='O')
+    ]
+
+    _print_board_from_save_dict(b.to_save_dict())
+
+    b.make_move([
+        Tile(letter='H', x=5, y=7),
+        Tile(letter='E', x=6, y=7),
+        Tile(letter='L', x=7, y=7),
+        Tile(letter='L', x=8, y=7),
+        Tile(letter='O', x=9, y=7)
+    ], p1)
+    
+    _print_board_from_save_dict(b.to_save_dict())

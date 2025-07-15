@@ -5,8 +5,8 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import asyncio
+##sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import dataclasses as _dc, importlib as _il
 from ram.scrabble import Board, Player, WordList,TileBank, create_tile_bag, Tile
@@ -75,7 +75,7 @@ def start_game(req: StartGameRequest):
 
 
 @app.post("/make_move")
-def make_move(req: MakeMoveRequest):
+async def make_move(req: MakeMoveRequest):
     """Apply a move consisting of one or more tile placements."""
     board = _assert_board_exists()
 
@@ -104,16 +104,8 @@ def make_move(req: MakeMoveRequest):
         board.make_move(tiles, player_obj)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    await board.save_to_redis()
     return {"message": "Move applied", "turn": board.turn}
-
-@app.get("/board")
-def get_board():
-    board = _assert_board_exists()
-    # Convert BTile objects to dict with letter & multiplier for ease of front-end use.
-    simple_board = [[{"letter": getattr(cell, "letter", ""), "mult": getattr(cell, "multiplier", 0)} for cell in row] for row in board.board]
-    return {"board": simple_board, "turn": board.turn}
-
 
 @app.get("/validate")
 def validate():
@@ -125,13 +117,10 @@ def validate():
     return {"message": "All words valid"}
 
 
-@app.get("/status")
+@app.get("/state")
 def status():
     board = _assert_board_exists()
-    return {
-        "turn": board.turn,
-        "current_player_index": board.turn % len(board.players) if board.players else None,
-    }
+    return board.to_save_dict()
 
 @app.get("/hand")
 def get_hand(player: Optional[int] = Query(None, ge=0,
@@ -155,7 +144,7 @@ def get_hand(player: Optional[int] = Query(None, ge=0,
 
     return {"player_index": idx, "hand": hand}
 
-@app.post("/save")
+@app.post("/save") 
 async def save_board():
     """Persist the current board state to Redis."""
     board = _assert_board_exists()

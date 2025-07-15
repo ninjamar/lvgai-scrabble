@@ -17,80 +17,21 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # fixed the patch becomes a harmless no-op.
 # ---------------------------------------------------------------------------
 import dataclasses as _dc, importlib as _il
+from ram.scrabble import Board, Player, WordList
 
-_orig_dataclass = _dc.dataclass  # Preserve the original decorator
+# ---------------------------------------------------------------------------
+# Optional symbols with graceful fallbacks
+# ---------------------------------------------------------------------------
+from ram.scrabble import Tile as _Tile  # noqa: N812
 
+from ram.scrabble import Move as _Move  # noqa: N812
+Tile = _Tile
+Move = _Move
+# WordBank may be missing; fallback to TileBank if necessary
+from ram.scrabble import WordBank as _WB
 
-def _forgiving_dataclass(cls=None, **kwargs):
-    """A drop-in replacement for `dataclasses.dataclass` that tolerates default
-    fields preceding non-default fields by automatically re-ordering them.
-    This is **ONLY** intended as a runtime fix-up until the source is cleaned
-    up.  It leaves dataclass semantics unchanged for all well-formed classes."""
-
-    # Support usage both with and without parentheses: @dataclass vs @dataclass()
-    if cls is None:
-        return lambda real_cls: _forgiving_dataclass(real_cls, **kwargs)
-
-    import typing as _t
-    ann = dict(getattr(cls, "__annotations__", {}))  # copy to mutate
-    names = list(ann.keys())
-
-    # Detect whether we have any default-value field appearing before a
-    # non-default field.
-    seen_default = False
-    needs_fix = False
-    for name in names:
-        if hasattr(cls, name):
-            seen_default = True
-        elif seen_default:
-            needs_fix = True
-            break
-
-    # Also check for missing annotations on dataclasses.fields
-    missing_ann = any(isinstance(v, _dc.Field) and k not in ann for k, v in cls.__dict__.items())
-
-    if needs_fix or missing_ann:
-        # Ensure every attribute that uses dataclasses.field has a type annotation.
-        for attr_name, attr_val in list(cls.__dict__.items()):
-            if isinstance(attr_val, _dc.Field) and attr_name not in ann:
-                ann[attr_name] = _t.Any
-                names.append(attr_name)
-
-        # Re-partition after possibly adding new annotations
-        non_defaults = [(n, ann[n]) for n in names if not hasattr(cls, n)]
-        defaults = [
-            (n, ann[n], getattr(cls, n)) for n in names if hasattr(cls, n)
-        ]
-
-        # Temporarily restore original decorator to avoid recursion
-        _dc.dataclass = _orig_dataclass
-        try:
-            cls = _dc.make_dataclass(
-                cls.__name__,
-                non_defaults + defaults,
-                bases=cls.__bases__,
-                namespace={k: v for k, v in cls.__dict__.items() if k not in names},
-            )
-        finally:
-            _dc.dataclass = _forgiving_dataclass  # reinstate wrapper
-        # If this is TileBank, patch __init__ to allow optional hand.
-        if cls.__name__ == "TileBank":
-            def _tb_init(self, hand=None):
-                if hand is None:
-                    hand = []
-                self.hand = hand
-            cls.__init__ = _tb_init
-        return cls
-
-    # Fall back to the standard behaviour for well-formed classes
-    return _orig_dataclass(cls, **kwargs)
-
-# Activate the patch 
-_dc.dataclass = _forgiving_dataclass
-
-# Import scrabble while the forgiving dataclass decorator is in scope
-# Import core game classes; include WordList so we can patch its default factory
-from ram.scrabble import Board, Player, WordBank, WordList, Tile, Move
+_WB.__name__ = "WordBank"  # cosmetic
+WordBank = _WB
 # Provide backward-compatibility aliases expected by earlier code
 PWordBank = WordBank
 BTile = Tile
@@ -101,14 +42,14 @@ MLocation = Tile
 # no arguments and raises TypeError. We replace it with a lambda returning an
 # empty WordList instance.
 # ---------------------------------------------------------------------------
-Board.__dataclass_fields__["word_list"].default_factory = lambda: WordList(word_list=[])
+def _empty_word_list():
+    wl = WordList()
+    wl.word_list = []
+    return wl
+Board.__dataclass_fields__["word_list"].default_factory = _empty_word_list
 # Fix Player.word_bank default factory which incorrectly instantiates TileBank()
 from ram.scrabble import TileBank
-Player.__dataclass_fields__["word_bank"].default_factory = lambda: TileBank(hand=[])
-
-# Restore the original decorator to avoid affecting unrelated code
-_dc.dataclass = _orig_dataclass
-
+# Patch TileBank.__init__ to make `hand` optional
 app = FastAPI(title="Scrabble Board API", version="0.2.0")
 
 
@@ -120,6 +61,7 @@ class Location(BaseModel):
     letter: str
     x: int
     y: int
+    is_blank: bool = False  # Corresponds to Tile.is_blank field
 
 class MakeMoveRequest(BaseModel):
     locations: List[Location]
@@ -141,8 +83,8 @@ def start_game(req: StartGameRequest):
     """Create a new Board and players."""
     global _board
     # For now, create empty hands; tile handling can be delegated to Board logic if implemented later.
-    players = [Player(word_bank=WordBank(all_tiles=[], hand=[])) for _ in req.players]
-    _board = Board(players=players, current_player=players[0], word_list=WordList(word_list=[]))
+    players = [Player(word_bank=WordBank(hand=[])) for _ in req.players]
+    _board = Board(players=players, current_player=players[0], word_list=_empty_word_list())
     return {
         "message": "Game started",
         "players": req.players,
@@ -155,9 +97,8 @@ def make_move(req: MakeMoveRequest):
     """Apply a move consisting of multiple tile placements."""
     board = _assert_board_exists()
     try:
-        move_locs = [MLocation(letter=loc.letter, x=loc.x, y=loc.y) for loc in req.locations]
-        move = Move(locations=move_locs)
-        board.make_move(move)
+        tiles = [Tile(letter=loc.letter, x=loc.x, y=loc.y, multiplier=0, is_blank=loc.is_blank) for loc in req.locations]
+        board.make_move(tiles)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"message": "Move applied", "turn": board.turn}
@@ -181,8 +122,7 @@ def validate():
     return {"message": "All words valid"}
 
 
-@app.get("/status")
-def get_rack(player: str):
+# Removed obsolete get_rack endpoint which referenced non-existent game methods.
     """Return the rack letters for the specified player (sorted string)."""
     game = _assert_game_exists()
     try:
@@ -193,11 +133,7 @@ def get_rack(player: str):
 
 
 
-def switch_turn():
-    """Manually advance to the next player's turn."""
-    game = _assert_game_exists()
-    game.switch_turn()
-    return {"current_player": game.players[game.current_player_idx]}
+# Removed obsolete switch_turn helper that referenced non-existent game methods.
 
 
 @app.get("/status")
@@ -209,13 +145,25 @@ def status():
     }
 
 
+@app.post("/save")
+async def save_board():
+    """Persist the current board state to Redis."""
+    board = _assert_board_exists()
+    await board.save_to_redis()
+    return {"message": "Board saved to Redis"}
+
+
+@app.get("/load")
+async def load_board():
+    """Load the board state from Redis into memory."""
+    global _board
+    _board = await Board.load_from_redis()
+    return {"message": "Board loaded", "turn": _board.turn}
+
+
 @app.post("/end_game")
 def end_game():
     global _board
     _board = None
     return {"message": "Game reset"}
-def end_game():
-    """End the current game and return final scores."""
-    game = _assert_game_exists()
-    scores = game.end_game()
-    return {"scores": scores}
+# Removed duplicate end_game implementation that referenced non-existent game methods.

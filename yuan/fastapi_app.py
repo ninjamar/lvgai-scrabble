@@ -37,8 +37,17 @@ class Location(BaseModel):
     is_blank: bool = False  # Corresponds to Tile.is_blank field
 
 class MakeMoveRequest(BaseModel):
-    locations: List[Location]
+    """
+    Body for POST /make_move
 
+    • `locations`   list of tiles you want to place  
+    • `player_index` (optional) 0-based index of the player making the move.
+        – Omit this field to default to the current player whose turn it is.
+    """
+    locations: List[Location]
+    player_index: Optional[int] = Field(
+        None, ge=0, description="0-based index; defaults to current player"
+    )
 
 # A single (global) game instance for simplicity. For multi-game support, switch
 # to a dict keyed by a game_id.
@@ -67,15 +76,36 @@ def start_game(req: StartGameRequest):
 
 @app.post("/make_move")
 def make_move(req: MakeMoveRequest):
-    """Apply a move consisting of multiple tile placements."""
+    """Apply a move consisting of one or more tile placements."""
     board = _assert_board_exists()
+
+    # build Tile objects from the payload
+    tiles = [
+        Tile(
+            letter=loc.letter,
+            x=loc.x,
+            y=loc.y,
+            multiplier=0,
+            is_blank=loc.is_blank,
+        )
+        for loc in req.locations
+    ]
+
+    # pick the acting player
+    if req.player_index is None:
+        player_obj = board.current_player
+    else:
+        if req.player_index >= len(board.players):
+            raise HTTPException(status_code=400, detail="player_index out of range")
+        player_obj = board.players[req.player_index]
+
+    # delegate to backend; it will raise on illegal moves
     try:
-        tiles = [Tile(letter=loc.letter, x=loc.x, y=loc.y, multiplier=0, is_blank=loc.is_blank) for loc in req.locations]
-        board.make_move(tiles)
+        board.make_move(tiles, player_obj)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"message": "Move applied", "turn": board.turn}
 
+    return {"message": "Move applied", "turn": board.turn}
 
 @app.get("/board")
 def get_board():

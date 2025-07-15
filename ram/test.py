@@ -1,4 +1,4 @@
-from scrabble import *
+from .scrabble import *
 
 def print_turn_info(b):
     print_board_from_save_dict(b.to_save_dict())

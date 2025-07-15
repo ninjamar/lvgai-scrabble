@@ -1,6 +1,6 @@
 import redis.asyncio as aredis
 import asyncio
-from scrabble import Board, Player, create_tile_bag, WordList
+from .scrabble import Board, Player, create_tile_bag, WordList
 
 rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 

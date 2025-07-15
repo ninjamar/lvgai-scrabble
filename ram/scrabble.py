@@ -1,37 +1,22 @@
 """
-      0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  <- x
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 0 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 1 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 2 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 3 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 4 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 5 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 6 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 7 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 8 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
- 9 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
-10 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
-11 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
-12 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
-13 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
-14 | T | T | T | T | T | T | T | T | T | T | T | T | T | T | T |
-   +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
-^y
+    0  1  2  3  4  5  6  7  8  9 10 11 12 13 14
+  +---------------------------------------------+
+ 0| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+ 1| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+ 2| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+ 3| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+ 4| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+ 5| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+ 6| .  .  .  .  .  .  .  .  .  T  .  .  .  .  . |
+ 7| .  .  .  .  .  H  E  L  L  O  .  .  .  .  . |
+ 8| .  .  .  .  .  .  .  I  .  .  .  .  .  .  . |
+ 9| .  .  .  .  .  .  .  T  .  .  .  .  .  .  . |
+10| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+11| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+12| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+13| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+14| .  .  .  .  .  .  .  .  .  .  .  .  .  .  . |
+  +---------------------------------------------+
 """
 
 """
@@ -45,7 +30,6 @@ import dataclasses
 import json
 import random
 from pathlib import Path
-from typing import ClassVar
 
 import redis.asyncio as aredis
 
@@ -56,6 +40,11 @@ ROOT_PATH = "."
 # https://stackoverflow.com/q/8421337
 rotate_list = lambda x: list(zip(*x[::-1]))
 
+def initialize_board():
+    return [
+        [Tile(letter="", x=cell, y=row) for cell in range(15)] for row in range(15)
+    ]
+
 
 @dataclasses.dataclass
 class WordList:
@@ -65,7 +54,6 @@ class WordList:
 
     @classmethod
     def load_word_list(cls):
-        # TODO: Use abs path
         with open(Path(__file__).resolve().parent / "words.txt", "r") as f:
             return cls(word_list=[word.upper() for word in f.read().splitlines()])
 
@@ -230,16 +218,9 @@ class Board:
 
     tile_bag: list[Tile]
 
-    @classmethod
-    def initialize_board(cls):
-        # TODO: Initialize multipliers
-        return [
-            [Tile(letter="", x=cell, y=row) for cell in range(15)] for row in range(15)
-        ]
-
     # TODO: Single line
     board: list[list] = dataclasses.field(
-        default_factory=lambda: Board.initialize_board()
+        default_factory=initialize_board
     )
     # Word list needs to stay client side -- so do not make as dict work on this
     word_list: WordList = dataclasses.field(
@@ -262,7 +243,6 @@ class Board:
         # [x] Validate all values -- they must all be in the word bank
         # [x] All moves must be in the same column or row
         # [ ] There should be no incomplete words at the end of the turn
-        # [ ] Word must be two letters
         # [ ] Words can be horizontal or vertical
         if i_am != self.current_player:
             raise ValueError("Incorrect player selected")
@@ -272,7 +252,7 @@ class Board:
         if self.turn == 0:
             if not any(tile.x == 7 and tile.y == 7 for tile in move):
                 raise ValueError(
-                    "First move must contain a letter on the center square"
+                    "First move on first turn must contain a letter on the center square"
                 )
 
         if not all(loc in self.current_player.word_bank for loc in move):
@@ -292,29 +272,7 @@ class Board:
 
         if self.turn > 0 and not self.touches_existing_tile(move, is_first_turn=False):
             raise ValueError("Move must touch an existing tile")
-        """
-        # ... make the moves
-        to_remove = []
-        new_board = copy.deepcopy(self.board)
-
-        for idx, loc in enumerate(move):
-            if not new_board[loc.y][loc.x].letter:
-                # Spot alerady occupied
-                return False
-            if new_board[loc.y][loc.x].is_blank:
-                to_remove.append(idx)
-            loc.multiplier = new_board[loc.y][loc.x].multiplier
-            new_board[loc.y][loc.x] = Tile.from_another(loc)
-
-        for idx in to_remove:
-            del move[idx]
-        # TODO: Validate moves here
-        # Make sure you can only add to prexisting words
-        if not self.validate_words():
-            return False
-
-        self.board = new_board
-        """
+        
         # 1 – lay tiles on a temporary board
         temp_board = copy.deepcopy(self.board)
         for tile in move:
@@ -337,27 +295,6 @@ class Board:
         self.current_player = self.players[self.turn % len(self.players)]
 
         self.current_player.word_bank.get_new_hand(self.tile_bag)
-
-    def validate_words(self):
-        """Validate all words on the board"""
-        # Words can be row or column
-        for row in self.board:
-            for col in row:
-
-                if col.letter == "":
-                    return False
-                word = "".join(col.letter for col in row)
-                if not self.word_list.is_valid_word(word):
-                    return False
-
-        for row in rotate_list(self.board):
-            for col in row:
-                if col.letter == "":
-                    return False
-                word = "".join(col.letter for col in row)
-                if not self.word_list.is_valid_word(word):
-                    return False
-        return True
 
     def is_contiguous(self, move: list[Tile]):
         if not move:

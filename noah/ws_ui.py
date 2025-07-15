@@ -1,154 +1,146 @@
-import websockets
-import json
-import os
-import argparse
-import httpx
+from typing import List, Optional
+
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
+import traceback
+
+import redis.asyncio as aredis
+from ram.scrabble import Board, Player, WordList, create_tile_bag, Tile
 import asyncio
 
-# Parse required --team argument
-parser = argparse.ArgumentParser(description="ASCII UI for Scrabble")
-parser.add_argument("--team", required=True, help="Team number (e.g., 4)")
-args = parser.parse_args()
-team_number = int(args.team)
-team_number_str = f"{team_number:02d}"
+async def test_redis():
+    r = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
+    try:
+        pong = await r.ping()
+        print("Redis connection successful:", pong)
+    except Exception as e:
+        print("Redis error:", e)
 
-# Build URLs
-WEBSOCKET_URL = f"ws://ai.thewcl.com:87{team_number_str}"
-BASE_URL = "http://localhost:8000"
+asyncio.run(test_redis())
 
-def clear_terminal():
-    os.system("cls" if os.name == "nt" else "clear")
 
-def format_cell(cell_value, index):
-    if isinstance(cell_value, str) and len(cell_value) == 1 and cell_value.isalpha():
-        return cell_value.upper()
-    elif isinstance(cell_value, str):
-        return cell_value
+# Load word list and set up Redis
+WORD_LIST = WordList.load_word_list()
+_rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
+
+app = FastAPI(title="Scrabble Board API", version="0.2.0")
+
+# Global game board
+_board: Optional[Board] = None
+
+# ========== Request Models ==========
+
+class StartGameRequest(BaseModel):
+    num_players: int = Field(..., ge=2, le=4)
+
+
+class Location(BaseModel):
+    letter: str
+    x: int
+    y: int
+    is_blank: bool = False
+
+
+class MakeMoveRequest(BaseModel):
+    locations: List[Location]
+    player_index: Optional[int] = Field(
+        None, ge=0, description="0-based index; defaults to current player"
+    )
+
+
+# ========== Internal Utilities ==========
+
+def _assert_board_exists() -> Board:
+    if _board is None:
+        raise HTTPException(status_code=400, detail="Game has not been started.")
+    return _board
+
+
+# ========== Routes ==========
+
+@app.post("/start_game")
+def start_game(req: StartGameRequest):
+    global _board
+    players = [Player() for _ in range(req.num_players)]
+    tile_bag = create_tile_bag()
+    _board = Board(players=players, tile_bag=tile_bag)
+    _board.initialize(WORD_LIST)
+    return {"message": "Game started", "turn": _board.turn, "success": True}
+
+
+@app.post("/make_move")
+async def make_move(req: MakeMoveRequest):
+    board = _assert_board_exists()
+
+    tiles = [
+        Tile(
+            letter=loc.letter,
+            x=loc.x,
+            y=loc.y,
+            multiplier=0,
+            is_blank=loc.is_blank,
+        )
+        for loc in req.locations
+    ]
+
+    if req.player_index is None:
+        player_obj = board.current_player
     else:
-        return "."
+        if req.player_index >= len(board.players):
+            raise HTTPException(status_code=400, detail="player_index out of range")
+        player_obj = board.players[req.player_index]
 
-async def get_state(client: httpx.AsyncClient):
-    response = await client.get(f"{BASE_URL}/state")
-    if response.status_code != 200:
-        return None
-    return response.json()
+    try:
+        board.make_move(tiles, player_obj)
+        await board.save_to_redis()
+        return {"message": "Move applied", "success": True}
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=str(exc))
 
-async def start_game(client: httpx.AsyncClient):
-    """Start a new game with 2 players."""
-    response = await client.post(f"{BASE_URL}/start_game", json={"num_players": 2})
-    return response.json()
 
-async def get_hand(client: httpx.AsyncClient, player_index: int):
-    response = await client.get(f"{BASE_URL}/hand", params={"player": player_index})
-    if response.status_code != 200:
-        return []
-    return response.json()["hand"]
+@app.get("/state")
+def get_state():
+    board = _assert_board_exists()
+    return board.to_save_dict()
 
-async def render_board(board):
-    size = 15
-    column_labels = "   " + " ".join([chr(ord("A") + i) for i in range(size)])
-    print(column_labels)
-    for row_index in range(size):
-        row_cells = []
-        for col_index in range(size):
-            cell_value = board[row_index][col_index]
-            row_cells.append(format_cell(cell_value, (row_index, col_index)))
-        print(f"{str(row_index + 1).rjust(2)} " + " ".join(row_cells))
 
-async def print_board_from_save_dict(save_dict):
-    board = save_dict["board"]
-    print("   " + " ".join(f"{i:2}" for i in range(len(board[0]))))
-    print("  +" + "---" * len(board[0]) + "+")
-    for y, row in enumerate(board):
-        line = f"{y:2}|"
-        for cell in row:
-            letter = cell[0] if cell[0] else "."
-            line += f" {letter} "
-        line += "|"
-        print(line)
-    print("  +" + "---" * len(board[0]) + "+")
+@app.get("/hand")
+def get_hand(player: Optional[int] = Query(None, ge=0)):
+    board = _assert_board_exists()
+    save_dict = board.to_save_dict()
 
-async def listen_for_updates():
-    async with websockets.connect(WEBSOCKET_URL) as ws:
-        print(f"Connected to {WEBSOCKET_URL}")
-        async for message in ws:
-            try:
-                data = json.loads(message)
-                positions = data.get("positions")
-                if "board" in data:
-                    clear_terminal()
-                    await print_board_from_save_dict(data)
-                elif isinstance(positions, list) and len(positions) == 15 and all(isinstance(row, list) and len(row) == 15 for row in positions):
-                    clear_terminal()
-                    await render_board(positions)
-                else:
-                    print("Invalid board data received.")
-            except json.JSONDecodeError:
-                print("Received non-JSON message.")
+    idx = save_dict["current_player"] if player is None else player
+    if idx >= len(save_dict["players"]):
+        raise HTTPException(status_code=400, detail="player index out of range")
 
-async def main():
-    async with httpx.AsyncClient() as client:
-        # Try to get current state, if no game exists, start a new one
-        state = await get_state(client)
-        if state is None:
-            print("No game found, starting a new game...")
-            await start_game(client)
-            state = await get_state(client)
+    raw_hand = save_dict["players"][idx]["hand"]
+    # If raw_hand is a list of tuples like ('A', False)
+    try:
+        hand = [{"letter": item["letter"], "is_blank": item["is_blank"]} for item in raw_hand]
+    except Exception:
+        # fallback in case it's already in dict format
+        hand = raw_hand
 
-        if state is None:
-            print("Failed to start game. Exiting.")
-            return
+    return {"player_index": idx, "hand": hand, "success": True}
 
-        current_player = 0
 
-        while True:
-            clear_terminal()
+@app.post("/save")
+async def save_board():
+    board = _assert_board_exists()
+    await board.save_to_redis()
+    return {"message": "Board saved to Redis", "success": True}
 
-            # Show board
-            state = await get_state(client)
-            if state is None:
-                print("Game state unavailable. Exiting.")
-                break
-            await print_board_from_save_dict(state)
 
-            # Show current player's hand
-            hand = await get_hand(client, current_player)
-            print(f"\nPlayer {current_player}'s tiles:", " ".join(tile["letter"].upper() for tile in hand))
+@app.get("/load")
+async def load_board():
+    global _board
+    _board = await Board.load_from_redis(WORD_LIST)
+    return {"message": "Board loaded", "turn": _board.turn, "success": True}
 
-            print("\nMake a move (or type 'exit' to quit)")
-            word = input("Enter a word: ").strip()
-            if word.lower() == "exit":
-                break
 
-            x = int(input("Start x (0-14): "))
-            y = int(input("Start y (0-14): "))
-            direction = input("Direction (horizontal/vertical): ").strip().lower()
-
-            tiles = []
-            for i, letter in enumerate(word):
-                tx, ty = (x + i, y) if direction == "horizontal" else (x, y + i)
-                tiles.append({
-                    "letter": letter,
-                    "x": tx,
-                    "y": ty,
-                    "is_blank": False
-                })
-
-            payload = {
-                "locations": tiles,
-                "player_index": current_player
-            }
-
-            response = await client.post(f"{BASE_URL}/make_move", json=payload)
-
-            if response.status_code != 200 or not response.json().get("success", False):
-                print("❌ Invalid move:", response.json().get("message", "Unknown error"))
-                input("Press Enter to try again...")
-            else:
-                print("✅ Move accepted!")
-                current_player = (current_player + 1) % 2  # Alternate players
-                input("Press Enter to continue...")
-
-if __name__ == "__main__":
-    asyncio.run(main())
-
+@app.post("/end_game")
+def end_game():
+    global _board
+    _board = None
+    return {"message": "Game reset", "success": True}

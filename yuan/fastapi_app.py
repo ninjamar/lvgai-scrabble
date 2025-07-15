@@ -2,43 +2,25 @@ import sys
 import os
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-# Add parent directory to path to import from ram directory
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# ---------------------------------------------------------------------------
-# Temporary monkey-patch: The `Tile` dataclass in `ram.scrabble` defines fields
-# with defaults before fields without defaults, which raises a `TypeError` when
-# the module is imported.  We work around this limitation by patching
-# `dataclasses.dataclass` with a forgiving wrapper that silently re-orders the
-# fields when it detects this specific anti-pattern.  Once the upstream code is
-# fixed the patch becomes a harmless no-op.
-# ---------------------------------------------------------------------------
 import dataclasses as _dc, importlib as _il
-from ram.scrabble import Board, Player, WordList 
+from ram.scrabble import Board, Player, WordList,TileBank, create_tile_bag, Tile
+WORD_LIST = WordList.load_word_list()
 
-# ---------------------------------------------------------------------------
-# Optional symbols with graceful fallbacks
-# ---------------------------------------------------------------------------
-from ram.scrabble import Tile as _Tile  # noqa: N812
-Tile = _Tile
-# Provide backward-compatibility aliases expected by earlier code
-BTile = Tile
-MLocation = Tile
+import redis.asyncio as aredis
+_rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 
-# ---------------------------------------------------------------------------
-# Fix `Board.word_list` default factory which otherwise calls WordList() with
-# no arguments and raises TypeError. We replace it with a lambda returning an
-# empty WordList instance.
-# ---------------------------------------------------------------------------
-def _empty_word_list():
-    wl = WordList()
-    wl.word_list = []
-    return wl
-Board.__dataclass_fields__["word_list"].default_factory = _empty_word_list
-# Fix Player.word_bank default factory which incorrectly instantiates TileBank()
+if not hasattr(Board, "_patched_save"):
+    async def _save_root(self):
+        return await _rd.json().set("scrabble:game_state", "$", self.to_save_dict())
+    Board.save_to_redis = _save_root      # type: ignore[attr-defined]
+    Board._patched_save = True
+
 from ram.scrabble import TileBank
 # Patch TileBank.__init__ to make `hand` optional
 app = FastAPI(title="Scrabble Board API", version="0.2.0")
@@ -71,7 +53,15 @@ def _assert_board_exists() -> Board:
 
 @app.post("/start_game")
 def start_game(req: StartGameRequest):
-    board = Board.initialize_board()
+    global _board
+
+    players = [Player() for _ in req.players]
+    tile_bag = create_tile_bag()
+
+    _board  = Board(players=players, tile_bag=tile_bag)
+    _board.initialize(WORD_LIST)
+
+    return {"message": "Game started", "turn": _board.turn}
     
 
 
@@ -91,7 +81,7 @@ def make_move(req: MakeMoveRequest):
 def get_board():
     board = _assert_board_exists()
     # Convert BTile objects to dict with letter & multiplier for ease of front-end use.
-    simple_board = [[{"letter": getattr(cell, "letter", ""), "mult": getattr(cell, "multiplier", 1)} for cell in row] for row in board.board]
+    simple_board = [[{"letter": getattr(cell, "letter", ""), "mult": getattr(cell, "multiplier", 0)} for cell in row] for row in board.board]
     return {"board": simple_board, "turn": board.turn}
 
 
@@ -113,6 +103,27 @@ def status():
         "current_player_index": board.turn % len(board.players) if board.players else None,
     }
 
+@app.get("/hand")
+def get_hand(player: Optional[int] = Query(None, ge=0,
+                                           description="0-based index; omit for current player")):
+    """
+    Return the word-bank (hand) for a player.
+
+    * If `player` is absent, we show the current player’s hand.
+    * The payload comes straight from `Board.to_save_dict()`, so it stays in sync
+      with whatever the backend serialiser produces.
+    """
+    board = _assert_board_exists()
+    save_dict = board.to_save_dict()          # ← single source of truth
+
+    idx = save_dict["current_player"] if player is None else player
+    if idx >= len(save_dict["players"]):
+        raise HTTPException(status_code=400, detail="player index out of range")
+
+    raw_hand = save_dict["players"][idx]["hand"]           # list of (letter, is_blank)
+    hand = [{"letter": l, "is_blank": b} for l, b in raw_hand]
+
+    return {"player_index": idx, "hand": hand}
 
 @app.post("/save")
 async def save_board():
@@ -126,7 +137,7 @@ async def save_board():
 async def load_board():
     """Load the board state from Redis into memory."""
     global _board
-    _board = await Board.load_from_redis()
+    _board = await Board.load_from_redis(WORD_LIST)
     return {"message": "Board loaded", "turn": _board.turn}
 
 

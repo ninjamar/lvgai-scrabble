@@ -139,61 +139,67 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
         while True:  # Retry until a move succeeds
             # Prompt for move details
             word = input("Enter the word to place: ").strip().upper()
-            x = int(input("Start x (0-14): "))
-            y = int(input("Start y (0-14): "))
-            direction = input("Direction: (h)orizontal/(v)ertical: ").strip().lower()
 
-            if num_blanks == 0:
-                # Build locations list
-                locations = []
-                for i, letter in enumerate(word):
-                    tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                    locations.append(
-                        {"letter": letter, "x": tx, "y": ty, "is_blank": False}
-                    )
-            else:
-                # Prompt for which letters in the word use blanks
-                # Allow for multiple blanks
-                blank_positions = set()
-                blank_map = {}  # position -> letter
-                remaining_blanks = num_blanks
+            if word:
 
-                print(
-                    f"You have {num_blanks} blank tile{'s' if num_blanks > 1 else ''}."
-                )
-                print("If you use any blank(s), specify their position in your word.")
+                x = int(input("Start x (0-14): "))
+                y = int(input("Start y (0-14): "))
+                direction = input("Direction: (h)orizontal/(v)ertical: ").strip().lower()
 
-                while remaining_blanks > 0:
-                    use_blank = (
-                        input(f"Do you want to use a blank tile? (y/n): ")
-                        .strip()
-                        .lower()
-                    )
-                    if use_blank != "y":
-                        break
-                    pos = int(
-                        input(
-                            "Which position in the word should be blank? (1 = first letter, etc): "
+                if num_blanks == 0:
+                    # Build locations list
+                    locations = []
+                    for i, letter in enumerate(word):
+                        tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+                        locations.append(
+                            {"letter": letter, "x": tx, "y": ty, "is_blank": False}
                         )
-                    )
-                    if pos < 1 or pos > len(word):
-                        print("Invalid position, try again.")
-                        continue
-                    if (pos - 1) in blank_positions:
-                        print("You already marked that letter as blank.")
-                        continue
-                    blank_positions.add(pos - 1)
-                    blank_map[pos - 1] = word[pos - 1]
-                    remaining_blanks -= 1
+                else:
+                    # Prompt for which letters in the word use blanks
+                    # Allow for multiple blanks
+                    blank_positions = set()
+                    blank_map = {}  # position -> letter
+                    remaining_blanks = num_blanks
 
-                # Now build locations, marking blanks
-                locations = []
-                for i, letter in enumerate(word):
-                    tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                    is_blank = i in blank_positions
-                    locations.append(
-                        {"letter": letter, "x": tx, "y": ty, "is_blank": is_blank}
+                    print(
+                        f"You have {num_blanks} blank tile{'s' if num_blanks > 1 else ''}."
                     )
+                    print("If you use any blank(s), specify their position in your word.")
+
+                    while remaining_blanks > 0:
+                        use_blank = (
+                            input(f"Do you want to use a blank tile? (y/n): ")
+                            .strip()
+                            .lower()
+                        )
+                        if use_blank != "y":
+                            break
+                        pos = int(
+                            input(
+                                "Which position in the word should be blank? (1 = first letter, etc): "
+                            )
+                        )
+                        if pos < 1 or pos > len(word):
+                            print("Invalid position, try again.")
+                            continue
+                        if (pos - 1) in blank_positions:
+                            print("You already marked that letter as blank.")
+                            continue
+                        blank_positions.add(pos - 1)
+                        blank_map[pos - 1] = word[pos - 1]
+                        remaining_blanks -= 1
+
+                    # Now build locations, marking blanks
+                    locations = []
+                    for i, letter in enumerate(word):
+                        tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+                        is_blank = i in blank_positions
+                        locations.append(
+                            {"letter": letter, "x": tx, "y": ty, "is_blank": is_blank}
+                        )
+            else:
+                locations = []
+                
             # print("DEBUG", locations)
             # Send move to API
             response = await make_move(client, locations, int(i_am_playing))

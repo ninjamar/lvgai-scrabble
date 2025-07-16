@@ -27,8 +27,9 @@
 [ ] TODO: In client, enter nothing to pass turn
 [ ] TODO: Add UI
 [ ] TODO: Fix websocket timeout error and reconnect on error
-[ ] TODO: Add multipliers
-[ ] TODO: Add colors to multipliers
+[x] TODO: Add multipliers
+[x] TODO: Add colors to multipliers
+[ ] TODO: Add key for multipliers
 """
 
 import copy
@@ -493,7 +494,7 @@ class Board:
         ]
         # Reconstruct tile bag
         tile_bag = [Tile(letter=l, is_blank=b) for (l, b) in data["tile_bag"]]
-        
+
         # Reconstruct board
         # Even though we have multipliers stored inside the board in to_save_dict,
         # they are used for the client side only. HACK

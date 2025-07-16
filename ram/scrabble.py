@@ -24,6 +24,7 @@
 [ ] TODO: Implement scoring
 [ ] TODO: Implement game over state (I think running out of tiles)
 [ ] TODO: Test code
+[ ] TODO: In client, enter nothing to pass turn
 """
 
 import copy
@@ -37,6 +38,38 @@ import redis.asyncio as aredis
 rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 REDIS_KEY = "scrabble:game_state"
 ROOT_PATH = "."
+
+# {letter: (count, points)}
+
+TILE_INFO = {
+    "E": (12, 1),
+    "A": (9, 1),
+    "I": (9, 1),
+    "O": (8, 1),
+    "N": (6, 1),
+    "R": (6, 1),
+    "T": (6, 1),
+    "L": (4, 1),
+    "S": (4, 1),
+    "U": (4, 1),
+    "D": (4, 2),
+    "G": (3, 2),
+    "B": (2, 3),
+    "C": (2, 3),
+    "M": (2, 3),
+    "P": (2, 3),
+    "F": (2, 4),
+    "H": (2, 4),
+    "V": (2, 4),
+    "W": (2, 4),
+    "Y": (2, 4),
+    "K": (1, 5),
+    "J": (1, 8),
+    "X": (1, 8),
+    "Q": (1, 10),
+    "Z": (1, 10),
+    "": (2, 0),  # Blanks as ''
+}
 
 # https://stackoverflow.com/q/8421337
 rotate_list = lambda x: list(zip(*x[::-1]))
@@ -91,57 +124,38 @@ class Tile:
 
     @classmethod
     def from_another(cls, obj: "Tile"):
+        # TODO: Automate
         return cls(
             letter=obj.letter,
             multiplier=obj.multiplier,
             x=obj.x,
             y=obj.y,
             is_blank=obj.is_blank,
+            points=obj.points,
         )
 
 
 def create_tile_bag():
     # TODO: Points
-    # {letter: (count, value)}
-    tile_counts = {
-        "E": (12, 1),
-        "A": (9, 1),
-        "I": (9, 1),
-        "O": (8, 1),
-        "N": (6, 1),
-        "R": (6, 1),
-        "T": (6, 1),
-        "L": (4, 1),
-        "S": (4, 1),
-        "U": (4, 1),
-        "D": (4, 2),
-        "G": (3, 2),
-        "B": (2, 3),
-        "C": (2, 3),
-        "M": (2, 3),
-        "P": (2, 3),
-        "F": (2, 4),
-        "H": (2, 4),
-        "V": (2, 4),
-        "W": (2, 4),
-        "Y": (2, 4),
-        "K": (1, 5),
-        "J": (1, 8),
-        "X": (1, 8),
-        "Q": (1, 10),
-        "Z": (1, 10),
-        "": (2, 0),  # Blanks as ''
-    }
     bag = []
-    for letter, (count, points) in tile_counts.items():
+    for letter, (count, points) in TILE_INFO.items():
         for _ in range(count):
             # x/y will be set when placed on board
             if letter == "":
                 bag.append(
-                    Tile(letter=letter, points=points, multiplier=0, x=None, y=None, is_blank=True)
+                    Tile(
+                        letter=letter,
+                        points=points,
+                        multiplier=0,
+                        x=None,
+                        y=None,
+                        is_blank=True,
+                    )
                 )
             else:
-                bag.append(Tile(letter=letter, points=points, multiplier=0, x=None, y=None))
+                bag.append(
+                    Tile(letter=letter, points=points, multiplier=0, x=None, y=None)
+                )
     return bag
 
 
@@ -162,7 +176,10 @@ class TileBank:
     def remove_tiles(self, tiles: list[Tile]):
         for tile in tiles:
             for i, hand_tile in enumerate(self.hand):
-                if (
+                if tile.is_blank and hand_tile.is_blank:
+                    del self.hand[i]
+                    break
+                elif (
                     hand_tile.letter == tile.letter
                     and hand_tile.is_blank == tile.is_blank
                 ):
@@ -218,6 +235,14 @@ class Board:
         # [x] All moves must be in the same column or row
         # [ ] There should be no incomplete words at the end of the turn
         # [ ] Words can be horizontal or vertical
+
+        # Correct points
+        for tile in move:
+            if tile.is_blank:
+                tile.points = 0
+            else:
+                tile.points = TILE_INFO.get(tile.letter.upper())[1]
+                
         if i_am != self.current_player:
             raise ValueError("Incorrect player selected")
 
@@ -274,7 +299,7 @@ class Board:
         # Bingo -- use all tiles = increase score by 50s
         if len(move) == 7:
             total_score += 50
-        
+        print("SCORE")
         self.current_player.score += total_score
 
         # 4 – everything passed → commit the temp board
@@ -285,6 +310,8 @@ class Board:
         self.current_player = self.players[self.turn % len(self.players)]
 
         self.current_player.word_bank.get_new_hand(self.tile_bag)
+
+        self.check_game_over()
 
     def is_contiguous(self, move: list[Tile]):
         if not move:
@@ -454,7 +481,43 @@ class Board:
 
     def score_word(self, tiles: list[Tile]) -> int:
         # TODO: Add multiplier
-        return sum([tile.points for tile in tiles])
+        return sum([0 if tile.is_blank else tile.points for tile in tiles])
+
+    def check_game_over(self):
+        # Game is over when both the following are true:
+        #   - Tile bag is EMPTY
+        #   - Any player has no tiles left
+        if len(self.tile_bag) == 0 and any(
+            len(player.word_bank.hand) == 0 for player in self.players
+        ):
+            self.is_game_over = True
+            self.finalize_scores()
+            return True
+        return False
+
+    def finalize_scores(self):
+        # Figure out who used all the tiles
+
+        out_player = None
+        for player in self.players:
+            if len(player.word_bank.hand) == 0:
+                out_player = player
+                break
+
+        # Add a penalty for unused tile values
+        for player in self.players:
+            # out_player has an empty hand, so no penalty
+            penalty = sum(tile.points for tile in player.word_bank.hand)
+            player.score -= penalty
+
+        # Award the sum of all penalties to the player who used all the tiles
+        if out_player:
+            bonus = sum(
+                sum(tile.points for tile in player.word_bank.hand)  # player penalty
+                for player in self.players
+            )
+            out_player.score += bonus
+
 
 def print_board_from_save_dict(save_dict):
     board = save_dict["board"]

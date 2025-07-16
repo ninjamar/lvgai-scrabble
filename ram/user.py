@@ -38,6 +38,7 @@ def print_board(board):
         print(line)
     print("  +" + "---" * len(board[0]) + "+")
 
+
 def ensure_input(prompt: str, allowed: list, t: type = str):
     ipt = t(input(prompt))
     while ipt not in allowed:
@@ -191,7 +192,9 @@ async def send_to_ws(websocket, message):
 
 async def main(args):
     async with (
-        websockets.connect(f"{WS_BASE_URL}/ws", ping_interval=20, ping_timeout=5, close_timeout=10) as ws,
+        websockets.connect(
+            f"{WS_BASE_URL}/ws", ping_interval=20, ping_timeout=5, close_timeout=10
+        ) as ws,
         httpx.AsyncClient() as client,
     ):
         if args.init:

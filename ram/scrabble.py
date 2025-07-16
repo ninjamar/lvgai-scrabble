@@ -259,25 +259,25 @@ class Board:
                 raise ValueError(
                     "First move on first turn must contain a letter on the center square"
                 )
-        
+
         # https://stackoverflow.com/a/433161
         # Check if same column or check if same row
         x_dir = all(loc.x == move[0].x for loc in move)
         y_dir = all(loc.y == move[0].y for loc in move)
-        if not (
-            x_dir
-            or y_dir
-        ):
+        if not (x_dir or y_dir):
             raise ValueError("All moves must be in the same column or row")
-        
+
         for tile in move:
             spot = self.board[tile.y][tile.x]
             if tile.letter != spot.letter:
                 if spot.letter != "":
-                    raise ValueError("Cannot place a tile on an already occupied square")
+                    raise ValueError(
+                        "Cannot place a tile on an already occupied square"
+                    )
                 if tile not in self.current_player.word_bank:
-                    raise ValueError(f"You don't have the tile {tile.letter} in your word bank")
-
+                    raise ValueError(
+                        f"You don't have the tile {tile.letter} in your word bank"
+                    )
 
         if not self.is_contiguous(move):
             raise ValueError("Move is not contiguous")
@@ -419,14 +419,17 @@ class Board:
         # SURE to add here and to cls.from_save_dict
         return {
             "players": [
-                {"hand": [(t.letter, t.is_blank) for t in player.word_bank.hand], "score": player.score}
+                {
+                    "hand": [(t.letter, t.is_blank) for t in player.word_bank.hand],
+                    "score": player.score,
+                }
                 for player in self.players
             ],
             "tile_bag": [(t.letter, t.is_blank) for t in self.tile_bag],
             "board": [[(t.letter, t.is_blank) for t in row] for row in self.board],
             "turn": self.turn,
             "current_player": self.players.index(self.current_player),
-            "is_game_over": self.is_game_over
+            "is_game_over": self.is_game_over,
         }
 
     @classmethod
@@ -437,7 +440,7 @@ class Board:
                 word_bank=TileBank(
                     hand=[Tile(letter=l, is_blank=b) for (l, b) in player_data["hand"]]
                 ),
-                score=player_data["score"]
+                score=player_data["score"],
             )
             for player_data in data["players"]
         ]
@@ -455,7 +458,7 @@ class Board:
             board=board,
             turn=data["turn"],
             current_player=players[data["current_player"]],
-            is_game_over=data["is_game_over"]
+            is_game_over=data["is_game_over"],
         )
         board_obj.word_list = word_list  # inject client word list
         return board_obj

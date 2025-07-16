@@ -23,7 +23,7 @@
 [x] TODO: Implement move validation
 [x] TODO: Implement scoring
 [ ] TODO: Implement game over state (I think running out of tiles)
-[ ] TODO: Test code
+[x] TODO: Test code
 [ ] TODO: In client, enter nothing to pass turn
 [ ] TODO: Add UI
 [ ] TODO: Fix websocket timeout error and reconnect on error
@@ -219,6 +219,8 @@ class Board:
 
     is_game_over: bool = False
 
+    consecutive_passes: int = 0
+
     def __post_init__(self):
         if not (2 <= len(self.players) <= 4):
             raise ValueError("Invalid amount of players. Need 2-4 players inclusive.")
@@ -235,8 +237,23 @@ class Board:
         # [x] If it is the first move, it must be on the center square
         # [x] Validate all values -- they must all be in the word bank
         # [x] All moves must be in the same column or row
-        # [ ] There should be no incomplete words at the end of the turn
-        # [ ] Words can be horizontal or vertical
+        # [x] There should be no incomplete words at the end of the turn
+        # [x] Words can be horizontal or vertical
+
+        # If move is 0, pass turn
+        if len(move) == 0:
+            self.consecutive_passes += 1
+            
+            self.next_turn()
+
+            if self.consecutive_passes >= len(self.players) * 2:
+                self.do_game_over()
+                
+            return True
+        else:
+            # Reset passes once a valid move has been made
+            self.consecutive_passes = 0
+
 
         # Correct points
         for tile in move:
@@ -308,6 +325,10 @@ class Board:
         self.board = temp_board
         # TODO: Do not remove tile already played
         self.current_player.word_bank.remove_tiles(move)  # TODO: Implement
+
+        self.next_turn()
+        
+    def next_turn(self):
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]
 
@@ -436,6 +457,7 @@ class Board:
             "turn": self.turn,
             "current_player": self.players.index(self.current_player),
             "is_game_over": self.is_game_over,
+            "consecutive_passes": self.consecutive_passes
         }
 
     @classmethod
@@ -465,6 +487,7 @@ class Board:
             turn=data["turn"],
             current_player=players[data["current_player"]],
             is_game_over=data["is_game_over"],
+            consecutive_passes=data["consecutive_passes"]
         )
         board_obj.word_list = word_list  # inject client word list
         return board_obj
@@ -492,10 +515,13 @@ class Board:
         if len(self.tile_bag) == 0 and any(
             len(player.word_bank.hand) == 0 for player in self.players
         ):
-            self.is_game_over = True
-            self.finalize_scores()
+            self.do_game_over()
             return True
         return False
+    
+    def do_game_over(self):
+        self.is_game_over = True
+        self.finalize_scores()
 
     def finalize_scores(self):
         # Figure out who used all the tiles

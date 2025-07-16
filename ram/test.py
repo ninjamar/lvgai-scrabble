@@ -152,6 +152,26 @@ def test_scrabble():
 
     assert b.players[0].score >= penalty
 
+
+    word_list = WordList.load_word_list()
+    p1 = Player()
+    p2 = Player()
+    b = Board(players=[p1, p2], tile_bag=create_tile_bag())
+    b.initialize(word_list)
+
+    # Manually set hands so no one can play
+    b.players[0].word_bank.hand = []
+    b.players[1].word_bank.hand = []
+
+    # Simulate 4 passes (2 passes each for 2 players)
+    for i in range(4):
+        current_player = b.current_player
+        b.make_move([], current_player)
+        if i < 3:
+            assert not b.is_game_over, "Game should not be over yet"
+        else:
+            assert b.is_game_over, "Game should be over after 4 consecutive passes"
+
     print("All asserts passed for Scrabble tests.")
 
 if __name__ == "__main__":

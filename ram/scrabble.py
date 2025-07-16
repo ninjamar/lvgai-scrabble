@@ -25,6 +25,8 @@
 [ ] TODO: Implement game over state (I think running out of tiles)
 [ ] TODO: Test code
 [ ] TODO: In client, enter nothing to pass turn
+[ ] TODO: Add UI
+[ ] TODO: Fix websocket timeout error and reconnect on error
 """
 
 import copy

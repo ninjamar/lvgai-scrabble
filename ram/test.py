@@ -138,4 +138,26 @@ if __name__ == "__main__":
         print("Unexpected error:", e)
     print_turn_info(b)
 
-    print("All step-by-step test cases executed.")
+    # 10. Game Over: Player empties hand with empty tile bag (legal 2-letter move)
+    print("Test 10: Game over on empty rack and empty bag (legal word)")
+
+    # Set up: player 1's rack = "O", "N"; player 2's rack = "B", "C"
+    b.tile_bag = []
+    b.current_player = b.players[0]
+    b.turn = 10  # or whatever is correct for turn order
+    b.players[0].word_bank.hand = [Tile(letter="O"), Tile(letter="N")]
+    b.players[1].word_bank.hand = [Tile(letter="B"), Tile(letter="C")]
+
+    try:
+        # Play "ON" vertically below the "O" in "HELLO"
+        b.make_move([
+            Tile(letter="O", x=9, y=8),
+            Tile(letter="N", x=9, y=9)
+        ], b.current_player)
+    except Exception as e:
+        print("Unexpected error:", e)
+    print_turn_info(b)
+
+    print("Game over status:", b.is_game_over)
+    for idx, player in enumerate(b.players):
+        print(f"Final Player {idx+1} score: {player.score}")

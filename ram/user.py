@@ -54,7 +54,7 @@ async def start_game(client: httpx.AsyncClient, num_players: int):
         print("NUM_PLAYERS must be between 2 and 4 inclusive")
         return
     payload = {"num_players": num_players}
-    response = await client.post(f"{BASE_URL}/start_game", json=payload)
+    response = await client.post(f"{BASE_URL}/start", json=payload)
     return response.json()
 
 
@@ -64,6 +64,7 @@ async def make_move(
     payload = {"locations": locations}
     if player_index is not None:
         payload["player_index"] = player_index
+
     response = await client.post(f"{BASE_URL}/make_move", json=payload)
     return response.json()
 
@@ -72,44 +73,15 @@ async def get_state(client: httpx.AsyncClient):
     response = await client.get(f"{BASE_URL}/state")
     return response.json()
 
-
-async def get_hand(client: httpx.AsyncClient, player: int = None):
-    params = {}
-    if player is not None:
-        params["player"] = player
-    response = await client.get(f"{BASE_URL}/hand", params=params)
-    return response.json()
-
-
-async def save_board(client: httpx.AsyncClient):
-    response = await client.post(f"{BASE_URL}/save")
-    return response.json()
-
-
-async def load_board(client: httpx.AsyncClient):
-    response = await client.get(f"{BASE_URL}/load")
-    return response.json()
-
-
-async def end_game(client: httpx.AsyncClient):
-    response = await client.post(f"{BASE_URL}/end_game")
-    return response.json()
-
-
-async def reset(*args, **kwargs):
-    return await start_game(*args, **kwargs)
-
-
 async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
     # Fetch the current board state
     state = await get_state(client)
-    print(state)
+    # print("DEBUG", state)
     # Print the board nicely
     if state.get("detail") is not None:
         print("Game has not been started.")
         exit()
 
-    print("BOARD PLACEHOLDER")  # TODO: Remove
     print_board(state["board"])
 
     # Show current scores
@@ -129,16 +101,17 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
         print(f"It’s your turn (Player {current_player})")
 
         # Show your hand
-        hand_data = await get_hand(client, player=i_am_playing)
+        # TODO: Get from state
+        hand_data = state["players"][i_am_playing]["hand"]
 
         # hand_data["hand"] is a list of (letter, is_blank) pairs
         hand_letters = " ".join(
-            "_" if tile[1] else tile[0].upper() for tile in hand_data["hand"]
+            "_" if tile[1] else tile[0].upper() for tile in hand_data
         )
         print(f"Your tiles: {hand_letters}")
 
         # Number of blanks in hand
-        num_blanks = sum(1 for tile in hand_data["hand"] if tile[1])
+        num_blanks = sum(1 for tile in hand_data if tile[1])
 
         while True:  # Retry until a move succeeds
             # Prompt for move details
@@ -198,7 +171,7 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
                     locations.append(
                         {"letter": letter, "x": tx, "y": ty, "is_blank": is_blank}
                     )
-            print(locations)
+            # print("DEBUG", locations)
             # Send move to API
             response = await make_move(client, locations, int(i_am_playing))
             print(response["message"])
@@ -252,11 +225,8 @@ async def main(args):
         ) as ws,
         httpx.AsyncClient() as client,
     ):
-        if args.init:
-            await start_game(client, args.init)
-            return
         if args.reset:
-            await reset(client, args.reset)
+            await start_game(client, args.reset)
             return
         await listen_for_updates(ws, client, args.player)
 
@@ -266,12 +236,6 @@ if __name__ == "__main__":
 
     # EG: Cannot use --init and --playerf
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "--init",
-        type=int,
-        metavar="NUM_PLAYERS",  # label in help message
-        help="Start a new game with NUM_PLAYERS (2-4)",
-    )
     group.add_argument(
         "--player",
         type=int,

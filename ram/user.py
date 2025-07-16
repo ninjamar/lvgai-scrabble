@@ -73,6 +73,7 @@ async def get_state(client: httpx.AsyncClient):
     response = await client.get(f"{BASE_URL}/state")
     return response.json()
 
+
 async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
     # Fetch the current board state
     state = await get_state(client)

@@ -20,9 +20,11 @@ class Location(BaseModel):
     y: int
     is_blank: bool = False
 
+
 class MakeMoveRequest(BaseModel):
     locations: list[Location]
-    player_index: int | None 
+    player_index: int | None
+
 
 @app.post("/start")
 async def start_game(req: StartGameRequest):
@@ -47,7 +49,7 @@ async def make_move(req: MakeMoveRequest):
             letter=loc.letter,
             x=loc.x,
             y=loc.y,
-            multiplier=0, # TODO: add multiplier
+            multiplier=0,  # TODO: add multiplier
             is_blank=loc.is_blank,
         )
         for loc in req.locations
@@ -66,7 +68,7 @@ async def make_move(req: MakeMoveRequest):
         move = board.make_move(tiles, player_obj)
     except Exception as exc:
         return {"message": str(exc), "success": False}
-    
+
     await board.save_to_redis()
     return {"message": "Move applied", "success": True}
 

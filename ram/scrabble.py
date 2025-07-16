@@ -242,7 +242,7 @@ class Board:
                 tile.points = 0
             else:
                 tile.points = TILE_INFO.get(tile.letter.upper())[1]
-                
+
         if i_am != self.current_player:
             raise ValueError("Incorrect player selected")
 

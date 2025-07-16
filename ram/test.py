@@ -1,5 +1,6 @@
 from .scrabble import *
 
+
 def print_turn_info(b):
     print_board_from_save_dict(b.to_save_dict())
     for idx, player in enumerate(b.players):
@@ -7,6 +8,7 @@ def print_turn_info(b):
         print(f"Player {idx+1} hand: {hand}")
     print(f"Current turn: Player {b.players.index(b.current_player)+1}")
     print("-" * 40)
+
 
 def test_scrabble():
     word_list = WordList.load_word_list()
@@ -130,10 +132,9 @@ def test_scrabble():
     b.players[0].word_bank.hand = [Tile(letter="O"), Tile(letter="N")]
     b.players[1].word_bank.hand = [Tile(letter="B"), Tile(letter="C")]
     try:
-        b.make_move([
-            Tile(letter="O", x=9, y=8),
-            Tile(letter="N", x=9, y=9)
-        ], b.current_player)
+        b.make_move(
+            [Tile(letter="O", x=9, y=8), Tile(letter="N", x=9, y=9)], b.current_player
+        )
     except Exception as e:
         assert False, f"Unexpected error: {e}"
     # Check game is over
@@ -145,13 +146,12 @@ def test_scrabble():
     # Player 2's score penalized, Player 1 gets their points
 
     previous_score = b.players[1].score
-    
+
     penalty = sum(t.points for t in b.players[1].word_bank.hand)
     penalty = sum(t.points for t in b.players[1].word_bank.hand)
     assert b.players[1].score == previous_score - penalty
 
     assert b.players[0].score >= penalty
-
 
     word_list = WordList.load_word_list()
     p1 = Player()
@@ -173,6 +173,7 @@ def test_scrabble():
             assert b.is_game_over, "Game should be over after 4 consecutive passes"
 
     print("All asserts passed for Scrabble tests.")
+
 
 if __name__ == "__main__":
     test_scrabble()

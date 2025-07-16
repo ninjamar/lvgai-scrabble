@@ -1,8 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ram.scrabble import (Board, Player, Tile, TileBank, WordList,
-                          create_tile_bag)
+from ram.scrabble import Board, Player, Tile, TileBank, WordList, create_tile_bag, BOARD_MULTIPLIERS
 
 WORD_LIST = WordList.load_word_list()
 
@@ -30,9 +29,8 @@ class MakeMoveRequest(BaseModel):
 async def start_game(req: StartGameRequest):
 
     players = [Player() for _ in range(req.num_players)]
-    tile_bag = create_tile_bag()
 
-    board = Board(players=players, tile_bag=tile_bag)
+    board = Board(players=players, tile_bag=create_tile_bag())
     board.initialize(WORD_LIST)
 
     await board.save_to_redis()
@@ -78,3 +76,7 @@ async def status():
     board = await Board.load_from_redis(WORD_LIST)
     # No need to save as to_save_dict() doesn't modify the state of the board -- HACK
     return board.to_save_dict()
+
+@app.get("/multiplier_locations")
+def multiplier_locations():
+    return BOARD_MULTIPLIERS

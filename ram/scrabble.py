@@ -27,6 +27,8 @@
 [ ] TODO: In client, enter nothing to pass turn
 [ ] TODO: Add UI
 [ ] TODO: Fix websocket timeout error and reconnect on error
+[ ] TODO: Add multipliers
+[ ] TODO: Add colors to multipliers
 """
 
 import copy
@@ -72,6 +74,24 @@ TILE_INFO = {
     "Z": (1, 10),
     "": (2, 0),  # Blanks as ''
 }
+
+BOARD_MULTIPLIERS = [
+    ["TWS", 0, 0, "DLS", 0, 0, 0, "TWS", 0, 0, 0, "DLS", 0, 0, "TWS"],
+    [0, "DWS", 0, 0, 0, "TLS", 0, 0, 0, "TLS", 0, 0, 0, "DWS", 0],
+    [0, 0, "DWS", 0, 0, 0, "DLS", 0, "DLS", 0, 0, 0, "DWS", 0, 0],
+    ["DLS", 0, 0, "DWS", 0, 0, 0, "DLS", 0, 0, 0, "DWS", 0, 0, "DLS"],
+    [0, 0, 0, 0, "DWS", 0, 0, 0, 0, 0, "DWS", 0, 0, 0, 0],
+    [0, "TLS", 0, 0, 0, "TLS", 0, 0, 0, "TLS", 0, 0, 0, "TLS", 0],
+    [0, 0, "DLS", 0, 0, 0, "DLS", 0, "DLS", 0, 0, 0, "DLS", 0, 0],
+    ["TWS", 0, 0, "DLS", 0, 0, 0, "DWS", 0, 0, 0, "DLS", 0, 0, "TWS"],
+    [0, 0, "DLS", 0, 0, 0, "DLS", 0, "DLS", 0, 0, 0, "DLS", 0, 0],
+    [0, "TLS", 0, 0, 0, "TLS", 0, 0, 0, "TLS", 0, 0, 0, "TLS", 0],
+    [0, 0, 0, 0, "DWS", 0, 0, 0, 0, 0, "DWS", 0, 0, 0, 0],
+    ["DLS", 0, 0, "DWS", 0, 0, 0, "DLS", 0, 0, 0, "DWS", 0, 0, "DLS"],
+    [0, 0, "DWS", 0, 0, 0, "DLS", 0, "DLS", 0, 0, 0, "DWS", 0, 0],
+    [0, "DWS", 0, 0, 0, "TLS", 0, 0, 0, "TLS", 0, 0, 0, "DWS", 0],
+    ["TWS", 0, 0, "DLS", 0, 0, 0, "TWS", 0, 0, 0, "DLS", 0, 0, "TWS"],
+]
 
 # https://stackoverflow.com/q/8421337
 rotate_list = lambda x: list(zip(*x[::-1]))
@@ -243,17 +263,16 @@ class Board:
         # If move is 0, pass turn
         if len(move) == 0:
             self.consecutive_passes += 1
-            
+
             self.next_turn()
 
             if self.consecutive_passes >= len(self.players) * 2:
                 self.do_game_over()
-                
+
             return True
         else:
             # Reset passes once a valid move has been made
             self.consecutive_passes = 0
-
 
         # Correct points
         for tile in move:
@@ -327,7 +346,7 @@ class Board:
         self.current_player.word_bank.remove_tiles(move)  # TODO: Implement
 
         self.next_turn()
-        
+
     def next_turn(self):
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]
@@ -453,11 +472,11 @@ class Board:
                 for player in self.players
             ],
             "tile_bag": [(t.letter, t.is_blank) for t in self.tile_bag],
-            "board": [[(t.letter, t.is_blank) for t in row] for row in self.board],
+            "board": [[(t.letter, t.is_blank, BOARD_MULTIPLIERS[y][x]) for x, t in enumerate(row)] for y, row in enumerate(self.board)],
             "turn": self.turn,
             "current_player": self.players.index(self.current_player),
             "is_game_over": self.is_game_over,
-            "consecutive_passes": self.consecutive_passes
+            "consecutive_passes": self.consecutive_passes,
         }
 
     @classmethod
@@ -474,9 +493,12 @@ class Board:
         ]
         # Reconstruct tile bag
         tile_bag = [Tile(letter=l, is_blank=b) for (l, b) in data["tile_bag"]]
+        
         # Reconstruct board
+        # Even though we have multipliers stored inside the board in to_save_dict,
+        # they are used for the client side only. HACK
         board = [
-            [Tile(letter=l, is_blank=b, x=x, y=y) for x, (l, b) in enumerate(row)]
+            [Tile(letter=l, is_blank=b, x=x, y=y) for x, (l, b, _) in enumerate(row)]
             for y, row in enumerate(data["board"])
         ]
         # Create Board instance
@@ -487,7 +509,7 @@ class Board:
             turn=data["turn"],
             current_player=players[data["current_player"]],
             is_game_over=data["is_game_over"],
-            consecutive_passes=data["consecutive_passes"]
+            consecutive_passes=data["consecutive_passes"],
         )
         board_obj.word_list = word_list  # inject client word list
         return board_obj
@@ -506,7 +528,33 @@ class Board:
 
     def score_word(self, tiles: list[Tile]) -> int:
         # TODO: Add multiplier
-        return sum([0 if tile.is_blank else tile.points for tile in tiles])
+        word_multiplier = 1
+        total = 0
+        for tile in tiles:
+            # Only apply multiplier if tile was already placed on the board. So,
+            # we need to check self.board, rather than tile.
+            # Tile is new if the letter is empty and it is not blank
+
+            spot = self.board[tile.y][tile.x]
+            if spot.letter == "" and not spot.is_blank:
+
+                letter_score = 0 if tile.is_blank else tile.points
+                multiplier = BOARD_MULTIPLIERS[tile.y][tile.x]
+                match multiplier:
+                    case "DLS":  # double letter score
+                        total += letter_score * 2
+                    case "TLS":  # triple letter score
+                        total += letter_score * 3
+                    case "DWS":  # double word scores
+                        total += letter_score
+                        word_multiplier *= 2
+                    case "TWS":  # tripple word score
+                        total += letter_score
+                        word_multiplier *= 2
+                    case _:
+                        total += letter_score
+
+        return total * word_multiplier
 
     def check_game_over(self):
         # Game is over when both the following are true:
@@ -518,7 +566,7 @@ class Board:
             self.do_game_over()
             return True
         return False
-    
+
     def do_game_over(self):
         self.is_game_over = True
         self.finalize_scores()

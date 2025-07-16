@@ -50,12 +50,12 @@ def initialize_board():
 class WordList:
     """Contains a list of valid words"""
 
-    word_list: list[str] = None
+    word_list: set[str] = None
 
     @classmethod
     def load_word_list(cls):
         with open(Path(__file__).resolve().parent / "words.txt", "r") as f:
-            return cls(word_list=[word.upper() for word in f.read().splitlines()])
+            return cls(word_list={word.upper() for word in f.read().splitlines()})
 
     def is_valid_word(self, word):
         return word.upper() in self.word_list
@@ -68,6 +68,8 @@ class Tile:
     """
 
     letter: str = None
+    points: int = 0
+
     multiplier: int = 0
     x: int = None
     y: int = None
@@ -136,44 +138,11 @@ def create_tile_bag():
             # x/y will be set when placed on board
             if letter == "":
                 bag.append(
-                    Tile(letter=letter, multiplier=0, x=None, y=None, is_blank=True)
+                    Tile(letter=letter, points=points, multiplier=0, x=None, y=None, is_blank=True)
                 )
             else:
-                bag.append(Tile(letter=letter, multiplier=0, x=None, y=None))
+                bag.append(Tile(letter=letter, points=points, multiplier=0, x=None, y=None))
     return bag
-
-
-def from_dict(cls, d: dict):
-    kwargs = {}
-    for f in dataclasses.fields(cls):
-        if not f.init:  # init=False
-            continue
-
-        value = d.get(f.name)
-        if dataclasses.is_dataclass(f.type):
-            if isinstance(value, dict):
-                kwargs[f.name] = from_dict(f.type, value)
-            elif isinstance(value, list):
-                kwargs[f.name] = [
-                    from_dict(f.type, v) if isinstance(v, dict) else v for v in value
-                ]
-            else:
-                kwargs[f.name] = value
-        elif (
-            isinstance(value, list)
-            and hasattr(f.type, "__origin__")
-            and f.type.__origin__ is list
-            and dataclasses.is_dataclass(f.type.__args__[0])
-        ):
-            # For list of dataclasses
-            item_type = f.type.__args__[0]
-            kwargs[f.name] = [
-                from_dict(item_type, item) if isinstance(item, dict) else item
-                for item in value
-            ]
-        else:
-            kwargs[f.name] = value
-    return cls(**kwargs)
 
 
 @dataclasses.dataclass
@@ -299,6 +268,14 @@ class Board:
                 raise ValueError("Every word must be at least two letters")
             if not self.word_list.is_valid_word(word):
                 raise ValueError(f"‘{word}’ is not in the dictionary")
+
+        total_score = sum([self.score_word(tiles) for word, tiles in words])
+
+        # Bingo -- use all tiles = increase score by 50s
+        if len(move) == 7:
+            total_score += 50
+        
+        self.current_player.score += total_score
 
         # 4 – everything passed → commit the temp board
         self.board = temp_board
@@ -475,6 +452,9 @@ class Board:
         obj = Board.from_save_dict(data, word_list)
         return obj
 
+    def score_word(self, tiles: list[Tile]) -> int:
+        # TODO: Add multiplier
+        return sum([tile.points for tile in tiles])
 
 def print_board_from_save_dict(save_dict):
     board = save_dict["board"]

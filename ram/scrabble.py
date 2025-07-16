@@ -260,8 +260,6 @@ class Board:
                     "First move on first turn must contain a letter on the center square"
                 )
         
-        
-
         # https://stackoverflow.com/a/433161
         # Check if same column or check if same row
         x_dir = all(loc.x == move[0].x for loc in move)
@@ -304,6 +302,7 @@ class Board:
 
         # 4 – everything passed → commit the temp board
         self.board = temp_board
+        # TODO: Do not remove tile already played
         self.current_player.word_bank.remove_tiles(move)  # TODO: Implement
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]

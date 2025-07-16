@@ -105,7 +105,7 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
         print("Game has not been started.")
         exit()
 
-    print_board(state["board"])
+    # print_board(state["board"])
 
     # Show current scores
     for idx, player in enumerate(state["players"]):
@@ -199,7 +199,7 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
                         )
             else:
                 locations = []
-                
+
             # print("DEBUG", locations)
             # Send move to API
             response = await make_move(client, locations, int(i_am_playing))
@@ -212,7 +212,8 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
                 print("Invalid move. Try again.")
 
         # Notify others via websocket and Redis
-        await send_to_ws(ws, {"event": "move_made", "player": i_am_playing})
+        # await send_to_ws(ws, state)
+        await send_state(ws, client)
         await rd.publish(PUB_SUB_KEY, f"Player {i_am_playing} made a move")
     else:
         print(f"Waiting for Player {current_player}'s turn...")
@@ -220,12 +221,17 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
     return False  # Signal caller to keep listening
 
 
+async def send_state(ws, client):
+    state = await get_state(client)
+    await send_to_ws(ws, state)
+
 async def listen_for_updates(
     ws: websockets.ClientConnection, client: httpx.AsyncClient, i_am_playing: int
 ):
     pubsub = rd.pubsub()
     await pubsub.subscribe(PUB_SUB_KEY)
-
+    
+    await send_state(ws, client)
     try:
         result = await handle_board_state(ws, client, i_am_playing)
 

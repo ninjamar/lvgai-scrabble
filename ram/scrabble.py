@@ -22,14 +22,17 @@
 """
 [x] TODO: Implement move validation
 [x] TODO: Implement scoring
-[ ] TODO: Implement game over state (I think running out of tiles)
+[x] TODO: Implement game over state (I think running out of tiles)
 [x] TODO: Test code
-[ ] TODO: In client, enter nothing to pass turn
-[ ] TODO: Add UI
-[ ] TODO: Fix websocket timeout error and reconnect on error
+[x] TODO: In client, enter nothing to pass turn
 [x] TODO: Add multipliers
 [x] TODO: Add colors to multipliers
-[ ] TODO: Add key for multipliers
+[x] TODO: Add UI
+[x] TODO: Finish blank tiles
+[x] TODO: Make all tests pass
+[ ] TODO: Fix websocket timeout error and reconnect on error
+[ ] TODO: Add key for multipliers in UI
+[ ] TODO: Add AI support
 """
 
 import copy
@@ -198,21 +201,30 @@ class TileBank:
 
     def remove_tiles(self, tiles: list[Tile]):
         for tile in tiles:
+            found = False
             for i, hand_tile in enumerate(self.hand):
                 if tile.is_blank and hand_tile.is_blank:
                     del self.hand[i]
+                    found = True
                     break
                 elif (
                     hand_tile.letter == tile.letter
-                    and hand_tile.is_blank == tile.is_blank
+                    and not tile.is_blank
                 ):
                     del self.hand[i]
+                    found = True
                     break  # Remove only one instance per tile
+            
+            if not found:
+                raise ValueError(f"Unable to remove tile {tile} because it was not in the hand")
 
     def __contains__(self, item):
         for hand_tile in self.hand:
-            if hand_tile.letter == item.letter and hand_tile.is_blank == item.is_blank:
+            if item.is_blank and hand_tile.is_blank:
                 return True
+            else:
+                if hand_tile.letter == item.letter and not hand_tile.is_blank:
+                    return True
         return False
 
 
@@ -236,6 +248,7 @@ class Board:
     )
 
     turn: int = 0
+    is_first_move: bool = True # Needed to check for first move
     current_player: Player = None
 
     is_game_over: bool = False
@@ -263,13 +276,19 @@ class Board:
 
         # If move is 0, pass turn
         if len(move) == 0:
+            # If the player passes on the first turn, the turn increases.
+            # This isn't supposed to happen.
+            was_first_move = self.is_first_move
+
             self.consecutive_passes += 1
 
             self.next_turn()
 
-            if self.consecutive_passes >= len(self.players) * 2:
+            if self.consecutive_passes >= len(self.players) * 2: # TODO: Magic number
                 self.do_game_over()
-
+            
+            if was_first_move:
+                self.is_first_move = True
             return True
         else:
             # Reset passes once a valid move has been made
@@ -287,7 +306,7 @@ class Board:
 
         # locations: [(letter, x, y), ...]
         # If it is the first move, it must be on the center square
-        if self.turn == 0:
+        if self.is_first_move:
             if not any(tile.x == 7 and tile.y == 7 for tile in move):
                 raise ValueError(
                     "First move on first turn must contain a letter on the center square"
@@ -315,7 +334,7 @@ class Board:
         if not self.is_contiguous(move):
             raise ValueError("Move is not contiguous")
 
-        if self.turn > 0 and not self.touches_existing_tile(move, is_first_turn=False):
+        if not self.is_first_move and not self.touches_existing_tile(move, is_first_turn=False):
             raise ValueError("Move must touch an existing tile")
 
         # 1 – lay tiles on a temporary board
@@ -349,6 +368,9 @@ class Board:
         self.next_turn()
 
     def next_turn(self):
+        if self.is_first_move:
+            self.is_first_move = False
+
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]
 
@@ -551,7 +573,7 @@ class Board:
                         word_multiplier *= 2
                     case "TWS":  # tripple word score
                         total += letter_score
-                        word_multiplier *= 2
+                        word_multiplier *= 3
                     case _:
                         total += letter_score
 

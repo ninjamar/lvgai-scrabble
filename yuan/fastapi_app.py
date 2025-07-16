@@ -76,7 +76,3 @@ async def status():
     board = await Board.load_from_redis(WORD_LIST)
     # No need to save as to_save_dict() doesn't modify the state of the board -- HACK
     return board.to_save_dict()
-
-@app.get("/multiplier_locations")
-def multiplier_locations():
-    return BOARD_MULTIPLIERS

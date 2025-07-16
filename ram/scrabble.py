@@ -301,7 +301,7 @@ class Board:
         # Bingo -- use all tiles = increase score by 50s
         if len(move) == 7:
             total_score += 50
-        print("SCORE")
+
         self.current_player.score += total_score
 
         # 4 – everything passed → commit the temp board

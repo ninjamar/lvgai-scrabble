@@ -21,7 +21,7 @@
 
 """
 [x] TODO: Implement move validation
-[ ] TODO: Implement scoring
+[x] TODO: Implement scoring
 [ ] TODO: Implement game over state (I think running out of tiles)
 [ ] TODO: Test code
 [ ] TODO: In client, enter nothing to pass turn

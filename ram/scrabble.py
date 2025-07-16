@@ -259,18 +259,27 @@ class Board:
                 raise ValueError(
                     "First move on first turn must contain a letter on the center square"
                 )
-
-        if not all(loc in self.current_player.word_bank for loc in move):
-            raise ValueError("All tiles must be in the word bank")
+        
+        
 
         # https://stackoverflow.com/a/433161
         # Check if same column or check if same row
-
+        x_dir = all(loc.x == move[0].x for loc in move)
+        y_dir = all(loc.y == move[0].y for loc in move)
         if not (
-            all(loc.x == move[0].x for loc in move)
-            or all(loc.y == move[0].y for loc in move)
+            x_dir
+            or y_dir
         ):
             raise ValueError("All moves must be in the same column or row")
+        
+        for tile in move:
+            spot = self.board[tile.y][tile.x]
+            if tile.letter != spot.letter:
+                if spot.letter != "":
+                    raise ValueError("Cannot place a tile on an already occupied square")
+                if tile not in self.current_player.word_bank:
+                    raise ValueError(f"You don't have the tile {tile.letter} in your word bank")
+
 
         if not self.is_contiguous(move):
             raise ValueError("Move is not contiguous")

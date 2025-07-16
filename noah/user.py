@@ -133,12 +133,12 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
             word = input("Enter the word to place: ").strip().upper()
             x = int(input("Start x (0-14): "))
             y = int(input("Start y (0-14): "))
-            direction = input("Direction (horizontal/vertical): ").strip().lower()
+            direction = input("Direction: (h)orizontal/(v)ertical: ").strip().lower()
 
             # Build locations list
             locations = []
             for i, letter in enumerate(word):
-                tx, ty = (x + i, y) if direction == "horizontal" else (x, y + i)
+                tx, ty = (x + i, y) if direction == "h" else (x, y + i)
                 locations.append(
                     {"letter": letter, "x": tx, "y": ty, "is_blank": False}
                 )

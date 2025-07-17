@@ -134,6 +134,142 @@ async def get_ai(client: httpx.AsyncClient, board, hand_data):
     return json.loads(data["output"][0]["content"][0]["text"])
 
 
+async def create_locations_from_ai(client, board, hand_letters, i_am_playing):
+    # Get AI move suggestion
+    ai_response = await get_ai(client, board, hand_letters)
+    print("[AI] Response:", ai_response)
+
+    # Default to passing if the AI gives no move or word is null
+    if not ai_response or ai_response.get("word") is None:
+        print("[AI] No valid moves. Passing turn.")
+        locations = []
+    else:
+        word = ai_response["word"]
+        start_x, start_y = ai_response["start"]
+        direction = ai_response["direction"]
+        blanks = ai_response["blanks"]
+
+        # Set increments for direction
+        dx, dy = (1, 0) if direction == "h" else (0, 1)
+
+        # Build move locations
+        locations = []
+        for i, letter in enumerate(word):
+            x = start_x + dx * i
+            y = start_y + dy * i
+            # Blanks is a list of 1-based positions
+            is_blank = (i + 1) in blanks
+            locations.append(
+                {"letter": letter, "x": x, "y": y, "is_blank": is_blank}
+            )
+
+    # Send the move to the backend
+    response = await make_move(client, locations, int(i_am_playing))
+    # print(response["message"])
+
+    if response.get("success"):
+        print("Move accepted")
+    else:
+        print("Invalid move from AI.")
+
+    return locations
+
+async def user_do_action(client, hand_data, state, i_am_playing):
+    # Number of blanks in hand
+    num_blanks = sum(1 for tile in hand_data if tile[1])
+
+        # Prompt for move details
+    word = input("Enter the word to place: ").strip().upper()
+    locations = []
+    if not word:
+        return []
+
+    x = int(input("Start x (0-14): "))
+    y = int(input("Start y (0-14): "))
+    direction = (
+        input("Direction: (h)orizontal/(v)ertical: ").strip().lower()
+    )
+
+    #if num_blanks == 0:
+    #    pass
+        # # Build locations list
+        # locations = []
+        # for i, letter in enumerate(word):
+        #     tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+        #     locations.append(
+        #         {"letter": letter, "x": tx, "y": ty, "is_blank": False}
+        #     )
+    if num_blanks > 0:
+        # Prompt for which letters in the word use blanks
+        # Allow for multiple blanks
+        blank_positions = set()
+        blank_map = {}  # position -> letter
+        remaining_blanks = num_blanks
+
+        print(
+            f"You have {num_blanks} blank tile{'s' if num_blanks > 1 else ''}."
+        )
+        print(
+            "If you use any blank(s), specify their position in your word."
+        )
+
+        while remaining_blanks > 0:
+            use_blank = (
+                input(f"Do you want to use a blank tile? (y/n): ")
+                .strip()
+                .lower()
+            )
+            if use_blank != "y":
+                break
+            pos = int(
+                input(
+                    "Which position in the word should be blank? (1 = first letter, etc): "
+                )
+            )
+            if pos < 1 or pos > len(word):
+                print("Invalid position, try again.")
+                continue
+            if (pos - 1) in blank_positions:
+                print("You already marked that letter as blank.")
+                continue
+            blank_positions.add(pos - 1)
+            blank_map[pos - 1] = word[pos - 1]
+            remaining_blanks -= 1
+
+        # # Now build locations, marking blanks
+        # locations = []
+        # for i, letter in enumerate(word):
+        #     tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+        #     is_blank = i in blank_positions
+        #     locations.append(
+        #         {
+        #             "letter": letter,
+        #             "x": tx,
+        #             "y": ty,
+        #             "is_blank": is_blank,
+        #         }
+        #     )
+    board = state["board"]
+
+    locations = []
+    for i, letter in enumerate(word):
+        tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+        board_letter = board[ty][tx][0]
+        is_blank = False
+        if num_blanks > 0:
+            is_blank = i in blank_positions  # blank_positions is already set above if used
+
+        if board_letter.upper() != letter.upper():
+            locations.append(
+                {
+                    "letter": letter,
+                    "x": tx,
+                    "y": ty,
+                    "is_blank": is_blank,
+                }
+            )
+    return locations
+
 async def handle_board_state(
     ws, client: httpx.AsyncClient, i_am_playing: int, is_ai: bool
 ):
@@ -172,151 +308,23 @@ async def handle_board_state(
         )
 
         print(f"Your tiles: {hand_letters}")
-
-        if is_ai:
-            # Get AI move suggestion
-            ai_response = await get_ai(client, state["board"], hand_letters)
-            print("[AI] Response:", ai_response)
-
-            # Default to passing if the AI gives no move or word is null
-            if not ai_response or ai_response.get("word") is None:
-                print("[AI] No valid moves. Passing turn.")
-                locations = []
+        
+        while True:
+            if is_ai:
+                locations = await create_locations_from_ai(client, state["board"], hand_letters, i_am_playing)
             else:
-                word = ai_response["word"]
-                start_x, start_y = ai_response["start"]
-                direction = ai_response["direction"]
-                blanks = ai_response["blanks"]
+                locations = await user_do_action(client, hand_data, state, i_am_playing)
 
-                # Set increments for direction
-                dx, dy = (1, 0) if direction == "h" else (0, 1)
-
-                # Build move locations
-                locations = []
-                for i, letter in enumerate(word):
-                    x = start_x + dx * i
-                    y = start_y + dy * i
-                    # Blanks is a list of 1-based positions
-                    is_blank = (i + 1) in blanks
-                    locations.append(
-                        {"letter": letter, "x": x, "y": y, "is_blank": is_blank}
-                    )
-
-            # Send the move to the backend
             response = await make_move(client, locations, int(i_am_playing))
-            print(response["message"])
-            if response.get("success"):
+            
+            # print(response["message"])
+
+            if response.get("success", False):
                 print("Move accepted")
+                break  # Exit retry loop
             else:
-                print("Invalid move from AI.")
-        else:
-
-            # Number of blanks in hand
-            num_blanks = sum(1 for tile in hand_data if tile[1])
-
-            while True:  # Retry until a move succeeds
-                # Prompt for move details
-                word = input("Enter the word to place: ").strip().upper()
-                locations = []
-                if word:
-
-                    x = int(input("Start x (0-14): "))
-                    y = int(input("Start y (0-14): "))
-                    direction = (
-                        input("Direction: (h)orizontal/(v)ertical: ").strip().lower()
-                    )
-
-                    #if num_blanks == 0:
-                    #    pass
-                        # # Build locations list
-                        # locations = []
-                        # for i, letter in enumerate(word):
-                        #     tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                        #     locations.append(
-                        #         {"letter": letter, "x": tx, "y": ty, "is_blank": False}
-                        #     )
-                    if num_blanks > 0:
-                        # Prompt for which letters in the word use blanks
-                        # Allow for multiple blanks
-                        blank_positions = set()
-                        blank_map = {}  # position -> letter
-                        remaining_blanks = num_blanks
-
-                        print(
-                            f"You have {num_blanks} blank tile{'s' if num_blanks > 1 else ''}."
-                        )
-                        print(
-                            "If you use any blank(s), specify their position in your word."
-                        )
-
-                        while remaining_blanks > 0:
-                            use_blank = (
-                                input(f"Do you want to use a blank tile? (y/n): ")
-                                .strip()
-                                .lower()
-                            )
-                            if use_blank != "y":
-                                break
-                            pos = int(
-                                input(
-                                    "Which position in the word should be blank? (1 = first letter, etc): "
-                                )
-                            )
-                            if pos < 1 or pos > len(word):
-                                print("Invalid position, try again.")
-                                continue
-                            if (pos - 1) in blank_positions:
-                                print("You already marked that letter as blank.")
-                                continue
-                            blank_positions.add(pos - 1)
-                            blank_map[pos - 1] = word[pos - 1]
-                            remaining_blanks -= 1
-
-                        # # Now build locations, marking blanks
-                        # locations = []
-                        # for i, letter in enumerate(word):
-                        #     tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                        #     is_blank = i in blank_positions
-                        #     locations.append(
-                        #         {
-                        #             "letter": letter,
-                        #             "x": tx,
-                        #             "y": ty,
-                        #             "is_blank": is_blank,
-                        #         }
-                        #     )
-                        board = state["board"]
-
-                        locations = []
-                        for i, letter in enumerate(word):
-                            tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                            board_letter = board[ty][tx][0]
-                            is_blank = False
-                            if num_blanks > 0:
-                                is_blank = i in blank_positions  # blank_positions is already set above if used
-
-                            if board_letter.upper() != letter.upper():
-                                locations.append(
-                                    {
-                                        "letter": letter,
-                                        "x": tx,
-                                        "y": ty,
-                                        "is_blank": is_blank,
-                                    }
-                                )
-                else:
-                    locations = []
-
-                # print("DEBUG", locations)
-                # Send move to API
-                response = await make_move(client, locations, int(i_am_playing))
-                print(response["message"])
-
-                if response.get("success", False):
-                    print("Move accepted")
-                    break  # Exit retry loop
-                else:
-                    print("Invalid move. Try again.")
+                print("Invalid move. Try again.")
+                
 
         # Notify others via websocket and Redis
         # await send_to_ws(ws, state)
@@ -330,6 +338,7 @@ async def handle_board_state(
 
 async def send_state(ws, client):
     state = await get_state(client)
+
     await send_to_ws(ws, state)
 
 

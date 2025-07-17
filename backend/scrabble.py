@@ -32,9 +32,10 @@
 [x] TODO: Make all tests pass
 [x] TODO: Add key for multipliers in UI
 [x] TODO: Fix websocket timeout error and reconnect on error
+[x] TODO: Architecture diagram
 [ ] TODO: Add AI support
 [ ] TODO: Player running on a different computer
-[ ] TODO: Architecture diagram
+[ ] TODO: Redraw tile action
 """
 
 import copy

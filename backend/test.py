@@ -3,6 +3,7 @@ from .scrabble import *
 
 def test_scrabble():
     word_list = WordList.load_word_list()
+
     p1 = Player()
     p2 = Player()
     b = Board(players=[p1, p2], tile_bag=create_tile_bag())
@@ -144,7 +145,6 @@ def test_scrabble():
 
     assert b.players[0].score >= penalty
 
-    word_list = WordList.load_word_list()
     p1 = Player()
     p2 = Player()
     b = Board(players=[p1, p2], tile_bag=create_tile_bag())
@@ -163,6 +163,40 @@ def test_scrabble():
         else:
             assert b.is_game_over, "Game should be over after 4 consecutive passes"
 
+    p1 = Player()
+    p2 = Player()
+    b = Board(players=[p1, p2], tile_bag=create_tile_bag())
+    b.initialize(word_list)
+
+    b.make_move([], p1)  # Pass turn
+
+    b.current_player.word_bank.hand = [Tile(letter="H"), Tile(letter="I")]
+    try:
+        b.make_move([Tile(letter="H", x=3, y=3), Tile(letter="I", x=4, y=3)], b.current_player)
+        assert False, "Should have raised error for first move not on center after pass"
+    except ValueError as e:
+        assert "center square" in str(e)
+
+    b.current_player.word_bank.hand = [
+        Tile(letter="H"),
+        Tile(letter="E"),
+        Tile(letter="L"),
+        Tile(letter="L"),
+        Tile(letter="O"),
+    ]
+    b.make_move(
+        [
+            Tile(letter="H", x=5, y=7),
+            Tile(letter="E", x=6, y=7),
+            Tile(letter="L", x=7, y=7),  # center!
+            Tile(letter="L", x=8, y=7),
+            Tile(letter="O", x=9, y=7),
+        ],
+        b.current_player,
+    )
+    assert b.board[7][7].letter == "L"
+    assert b.turn == 2
+    
     print("All asserts passed for Scrabble tests.")
 
 

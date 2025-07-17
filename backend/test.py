@@ -1,15 +1,5 @@
 from .scrabble import *
 
-
-def print_turn_info(b):
-    print_board_from_save_dict(b.to_save_dict())
-    for idx, player in enumerate(b.players):
-        hand = "".join([t.letter for t in player.word_bank.hand])
-        print(f"Player {idx+1} hand: {hand}")
-    print(f"Current turn: Player {b.players.index(b.current_player)+1}")
-    print("-" * 40)
-
-
 def test_scrabble():
     word_list = WordList.load_word_list()
     p1 = Player()

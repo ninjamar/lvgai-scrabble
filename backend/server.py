@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ram.scrabble import Board, Player, Tile, TileBank, WordList, create_tile_bag, BOARD_MULTIPLIERS
+from .scrabble import Board, Player, Tile, TileBank, WordList, create_tile_bag, BOARD_MULTIPLIERS
 
 WORD_LIST = WordList.load_word_list()
 

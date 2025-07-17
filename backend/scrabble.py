@@ -619,48 +619,6 @@ class Board:
             )
             out_player.score += bonus
 
-
-def print_board_from_save_dict(save_dict):
-    board = save_dict["board"]
-    print("   " + " ".join(f"{i:2}" for i in range(len(board[0]))))
-    print("  +" + "---" * len(board[0]) + "+")
-    for y, row in enumerate(board):
-        line = f"{y:2}|"
-        for cell in row:
-            letter = cell[0] if cell[0] else "."
-            line += f" {letter} "
-        line += "|"
-        print(line)
-    print("  +" + "---" * len(board[0]) + "+")
-
-
 if __name__ == "__main__":
-    word_list = WordList.load_word_list()
-
-    p1 = Player()
-    p2 = Player()
-    b = Board(players=[p1, p2], tile_bag=create_tile_bag())
-    b.initialize(word_list)
-
-    p1.word_bank.hand = [
-        Tile(letter="H"),
-        Tile(letter="E"),
-        Tile(letter="L"),
-        Tile(letter="L"),
-        Tile(letter="O"),
-    ]
-
-    print_board_from_save_dict(b.to_save_dict())
-
-    b.make_move(
-        [
-            Tile(letter="H", x=5, y=7),
-            Tile(letter="E", x=6, y=7),
-            Tile(letter="L", x=7, y=7),
-            Tile(letter="L", x=8, y=7),
-            Tile(letter="O", x=9, y=7),
-        ],
-        p1,
-    )
-
-    print_board_from_save_dict(b.to_save_dict())
+    # Tests are located in ./test
+    pass

@@ -31,7 +31,7 @@
 [x] TODO: Finish blank tiles
 [x] TODO: Make all tests pass
 [x] TODO: Add key for multipliers in UI
-[ ] TODO: Fix websocket timeout error and reconnect on error
+[x] TODO: Fix websocket timeout error and reconnect on error
 [ ] TODO: Add AI support
 [ ] TODO: Player running on a different computer
 [ ] TODO: Architecture diagram

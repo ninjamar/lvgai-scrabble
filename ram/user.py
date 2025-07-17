@@ -254,16 +254,20 @@ async def send_to_ws(websocket, message):
 
 
 async def main(args):
-    async with (
-        websockets.connect(
-            f"{WS_BASE_URL}/ws", ping_interval=10, ping_timeout=5, close_timeout=10
-        ) as ws,
-        httpx.AsyncClient() as client,
-    ):
-        if args.reset:
-            await start_game(client, args.reset)
-            return
-        await listen_for_updates(ws, client, args.player)
+    while True:
+        try:
+            async with (
+                websockets.connect(f"{WS_BASE_URL}/ws") as ws,
+                httpx.AsyncClient() as client,
+            ):
+                if args.reset:
+                    await start_game(client, args.reset)
+                    return
+                await listen_for_updates(ws, client, args.player)
+
+        except websockets.ConnectionClosedError:
+            print("Websocket connection error. Retrying in 500ms")
+            await asyncio.sleep(0.5)
 
 
 if __name__ == "__main__":

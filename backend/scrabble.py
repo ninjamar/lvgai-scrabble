@@ -200,7 +200,7 @@ class TileBank:
         for _ in range(min(to_add, len(tile_bag))):
             tile = tile_bag.pop(random.randrange(len(tile_bag)))
             self.hand.append(tile)
-
+    """
     def remove_tiles(self, tiles: list[Tile]):
         for tile in tiles:
             found = False
@@ -218,6 +218,41 @@ class TileBank:
                 raise ValueError(
                     f"Unable to remove tile {tile} because it was not in the hand"
                 )
+    """
+    def remove_tiles(self, tiles: list[Tile]):
+        # Make a copy of hand so we can remove by index
+        hand_tiles = list(self.hand)
+
+        # Build lists of indices for non-blanks and blanks
+        indices_by_letter = {}
+        blank_indices = []
+        for i, hand_tile in enumerate(hand_tiles):
+            if hand_tile.is_blank:
+                blank_indices.append(i)
+            else:
+                indices_by_letter.setdefault(hand_tile.letter, []).append(i)
+
+        # Build up list of indices to remove (avoid removing twice)
+        to_remove = []
+        for tile in tiles:
+            if tile.is_blank:
+                # Remove a blank tile
+                if not blank_indices:
+                    raise ValueError("No blank tile left in hand to remove")
+                to_remove.append(blank_indices.pop())
+            else:
+                # Try to remove matching non-blank letter first
+                if indices_by_letter.get(tile.letter):
+                    to_remove.append(indices_by_letter[tile.letter].pop())
+                elif blank_indices:
+                    # No real tile left, but have a blank; use it (should only happen if a blank was played as this letter)
+                    to_remove.append(blank_indices.pop())
+                else:
+                    raise ValueError(f"Tile {tile.letter} not in hand")
+
+        # Remove by indices, largest first (so earlier removals don't shift indices)
+        for idx in sorted(to_remove, reverse=True):
+            del self.hand[idx]
 
     def __contains__(self, item):
         for hand_tile in self.hand:
@@ -249,10 +284,10 @@ class Board:
     )
 
     turn: int = 0
-    is_first_move: bool = True  # Needed to check for first move
     current_player: Player = None
 
     is_game_over: bool = False
+    is_first_word: bool = True
 
     consecutive_passes: int = 0
 
@@ -277,9 +312,6 @@ class Board:
 
         # If move is 0, pass turn
         if len(move) == 0:
-            # If the player passes on the first turn, the turn increases.
-            # This isn't supposed to happen.
-            was_first_move = self.is_first_move
 
             self.consecutive_passes += 1
 
@@ -288,8 +320,6 @@ class Board:
             if self.consecutive_passes >= len(self.players) * 2:  # TODO: Magic number
                 self.do_game_over()
 
-            if was_first_move:
-                self.is_first_move = True
             return True
         else:
             # Reset passes once a valid move has been made
@@ -307,7 +337,7 @@ class Board:
 
         # locations: [(letter, x, y), ...]
         # If it is the first move, it must be on the center square
-        if self.is_first_move:
+        if self.is_first_word:
             if not any(tile.x == 7 and tile.y == 7 for tile in move):
                 raise ValueError(
                     "First move on first turn must contain a letter on the center square"
@@ -335,7 +365,7 @@ class Board:
         if not self.is_contiguous(move):
             raise ValueError("Move is not contiguous")
 
-        if not self.is_first_move and not self.touches_existing_tile(
+        if not self.is_first_word and not self.touches_existing_tile(
             move, is_first_turn=False
         ):
             raise ValueError("Move must touch an existing tile")
@@ -368,12 +398,12 @@ class Board:
         # TODO: Do not remove tile already played
         self.current_player.word_bank.remove_tiles(move)  # TODO: Implement
 
+        # Once the word has been made for the first time, continue
+        self.is_first_word = False
+
         self.next_turn()
 
     def next_turn(self):
-        if self.is_first_move:
-            self.is_first_move = False
-
         self.turn += 1
         self.current_player = self.players[self.turn % len(self.players)]
 
@@ -509,6 +539,7 @@ class Board:
             "current_player": self.players.index(self.current_player),
             "is_game_over": self.is_game_over,
             "consecutive_passes": self.consecutive_passes,
+            "is_first_word": self.is_first_word
         }
 
     @classmethod
@@ -542,6 +573,7 @@ class Board:
             current_player=players[data["current_player"]],
             is_game_over=data["is_game_over"],
             consecutive_passes=data["consecutive_passes"],
+            is_first_word=data["is_first_word"]
         )
         board_obj.word_list = word_list  # inject client word list
         return board_obj

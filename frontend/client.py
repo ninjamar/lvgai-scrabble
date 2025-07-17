@@ -36,37 +36,39 @@ OPENAI_PROXY_URL = "http://ai.thewcl.com:6502"
 OPENAI_PROXY_AUTH = os.environ["OPENAI_PROXY_AUTH"]
 
 SYSTEM_PROMPT = """
-You are an AI Scrabble player.
+You are playing Scrabble. You will receive the current board state and your hand of tiles as JSON input.
 
-Your task: Given the current board and your hand, choose the highest scoring legal move for your turn, following standard Scrabble rules.
+* The **"board"** key contains a 15x15 grid showing the current board. Letters represent tiles already played; symbols represent special squares:
 
-**Input Details:**
-- **Hand:** A string of 7 tiles, separated by spaces. If a tile is an underscore ("_"), it is a blank tile that can represent any letter.
-- **Board:** A 15x15 grid, printed with axes labeled 0–14. Symbols:
-    - Uppercase letters: placed tiles
-    - . (dot): empty square
-    - ! : double letter score (DLS)
-    - @ : triple letter score (TLS)
-    - # : double word score (DWS)
-    - $ : triple word score (TWS)
+  * `$` = Triple Word Score (TWS)
+  * `#` = Double Word Score (DWS)
+  * `@` = Triple Letter Score (TLS)
+  * `!` = Double Letter Score (DLS)
+  * `.` = Empty square
+* The **"hand"** key contains the tiles you can play. Blanks (wildcards) are shown as underscores (`"_"`). You may use blanks to represent any letter.
+* If you use one or more blanks, you **must** specify each blank’s position in your word using 1-based indexing (e.g., if the blank is the second letter of the word, include `2` in the "blanks" array).
+* All words formed must be valid English words. The new word must be placed in a legal Scrabble position, connected to existing words (if the board is not empty).
 
-**Rules and Requirements:**
-- Use only tiles from your hand (including blanks).
-- If you use one or more blanks, specify each blank’s position in your word using 1-based indexing: the first letter is position 1, the second is 2, etc.
-- Your move must be a legal Scrabble play: the word must connect to existing tiles (except for the first move), use only valid words according to a standard Scrabble dictionary, and conform to all standard Scrabble rules.
-- Always play a word if any valid move exists. If there are no legal moves with your hand, respond with the following JSON:  
-  `{ "word": null, "start": null, "direction": null, "blanks": [] }`
-- Output must be a single, valid JSON object and nothing else. Do not include comments, explanations, or extra text.
-
-**Output Format:**
+**Your task:**
+Decide on the highest-scoring or strongest valid move using the current hand. Place the word on the board according to Scrabble rules, using at least one letter from your hand. Output your move as a JSON object using this schema:
 
 ```json
 {
   "word": "<WORD IN UPPERCASE>",
-  "start": [x, y],  // x is the column (0–14), y is the row (0–14)
-  "direction": "h" or "v",  // "h" for left-to-right (horizontal), "v" for top-to-bottom (vertical)
-  "blanks": [positions]     // List of 1-based positions in the word that use a blank tile, or [] if none
+  "start": [x, y],
+  "direction": "h" or "v",
+  "blanks": [positions]
 }
+```
+
+* `"word"`: The word you will play, in uppercase.
+* `"start"`: The starting position (column, row) of your word (0-based indices).
+* `"direction"`: `"h"` for horizontal (left-to-right), `"v"` for vertical (top-to-bottom).
+* `"blanks"`: A list of positions (1-based index) in the word where you used a blank, or `[]` if no blanks.
+
+**Only output the JSON object. Do not add any extra text or explanation.**
+
+Here is your input:
 """
 
 
@@ -112,7 +114,10 @@ async def get_ai(client: httpx.AsyncClient, board, hand_data):
     write_board(board, color=False, output=stream)
     data = stream.getvalue()
 
-    user_prompt = f"Hand: {hand_data}. Board: {data}"
+    user_prompt = {
+        "hand": hand_data,
+        "board": data
+    }
 
     response = await client.post(
         f"{OPENAI_PROXY_URL}/chat",
@@ -120,11 +125,13 @@ async def get_ai(client: httpx.AsyncClient, board, hand_data):
         json={
             "model": "gpt-4.1-nano",
             "system_prompt": SYSTEM_PROMPT,
-            "user_prompt": user_prompt,
+            "user_prompt": json.dumps(user_prompt),
         },
         headers={"Authorization": f"Bearer {OPENAI_PROXY_AUTH}"},
     )
-    return json.loads(response.json()["output"][0]["content"][0]["text"])
+    data = response.json()
+    print(data)
+    return json.loads(data["output"][0]["content"][0]["text"])
 
 
 async def handle_board_state(
@@ -210,7 +217,7 @@ async def handle_board_state(
             while True:  # Retry until a move succeeds
                 # Prompt for move details
                 word = input("Enter the word to place: ").strip().upper()
-
+                locations = []
                 if word:
 
                     x = int(input("Start x (0-14): "))
@@ -219,15 +226,16 @@ async def handle_board_state(
                         input("Direction: (h)orizontal/(v)ertical: ").strip().lower()
                     )
 
-                    if num_blanks == 0:
-                        # Build locations list
-                        locations = []
-                        for i, letter in enumerate(word):
-                            tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                            locations.append(
-                                {"letter": letter, "x": tx, "y": ty, "is_blank": False}
-                            )
-                    else:
+                    #if num_blanks == 0:
+                    #    pass
+                        # # Build locations list
+                        # locations = []
+                        # for i, letter in enumerate(word):
+                        #     tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+                        #     locations.append(
+                        #         {"letter": letter, "x": tx, "y": ty, "is_blank": False}
+                        #     )
+                    if num_blanks > 0:
                         # Prompt for which letters in the word use blanks
                         # Allow for multiple blanks
                         blank_positions = set()
@@ -264,19 +272,38 @@ async def handle_board_state(
                             blank_map[pos - 1] = word[pos - 1]
                             remaining_blanks -= 1
 
-                        # Now build locations, marking blanks
+                        # # Now build locations, marking blanks
+                        # locations = []
+                        # for i, letter in enumerate(word):
+                        #     tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+                        #     is_blank = i in blank_positions
+                        #     locations.append(
+                        #         {
+                        #             "letter": letter,
+                        #             "x": tx,
+                        #             "y": ty,
+                        #             "is_blank": is_blank,
+                        #         }
+                        #     )
+                        board = state["board"]
+
                         locations = []
                         for i, letter in enumerate(word):
                             tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                            is_blank = i in blank_positions
-                            locations.append(
-                                {
-                                    "letter": letter,
-                                    "x": tx,
-                                    "y": ty,
-                                    "is_blank": is_blank,
-                                }
-                            )
+                            board_letter = board[ty][tx][0]
+                            is_blank = False
+                            if num_blanks > 0:
+                                is_blank = i in blank_positions  # blank_positions is already set above if used
+
+                            if board_letter.upper() != letter.upper():
+                                locations.append(
+                                    {
+                                        "letter": letter,
+                                        "x": tx,
+                                        "y": ty,
+                                        "is_blank": is_blank,
+                                    }
+                                )
                 else:
                     locations = []
 

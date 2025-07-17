@@ -15,22 +15,19 @@ def clear_terminal():
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def get_format_for_multiplier(multiplier):
+MULTIPLIER_INFO = {
+    "DLS": ("#8cb7d2", "!"),
+    "TLS": ("#057ec3", "@"),
+    "DWS": ("#dd8194", "#"),
+    "TWS": ("#d03040", "$")
+}
+def wrap_tag(tag, text):
+    return f"[{tag}]{text}[/{tag}]"
 
-    wrap_tag = lambda tag, text: f"[{tag}]{text}[/{tag}]"
-    match multiplier:
-        case "DLS":
-            #8cb7d2
-            return wrap_tag("#8cb7d2", "!")
-        case "TLS":
-            #057ec3
-            return wrap_tag("#057ec3", "@")
-        case "DWS":
-            #dd8194
-            return wrap_tag("#dd8194", "#")
-        case "TWS":
-            #d03040
-            return wrap_tag("#d03040", "$")
+def get_format_for_multiplier(multiplier):
+    
+    item = MULTIPLIER_INFO[multiplier]
+    return wrap_tag(item[0], item[1])
 
 def print_board(board):
     print("   " + " ".join(f"{i:2}" for i in range(len(board[0]))))
@@ -47,6 +44,11 @@ def print_board(board):
         line += "|"
         print(line)
     print("  +" + "---" * len(board[0]) + "+")
+
+    key = "  " # Two spaces to match above
+    for multiplier, (color, symbol) in MULTIPLIER_INFO.items():
+        key += f"{multiplier}:{wrap_tag(color, symbol)} "
+    print(key)
 
 
 async def listen_for_updates():

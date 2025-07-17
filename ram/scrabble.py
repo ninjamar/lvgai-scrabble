@@ -243,7 +243,7 @@ class Board:
     tile_bag: list[Tile]
 
     # TODO: Single line
-    board: list[list] = dataclasses.field(default_factory=initialize_board)
+    board: list[list[Tile]] = dataclasses.field(default_factory=initialize_board)
     # Word list needs to stay client side -- so do not make as dict work on this
     word_list: WordList = dataclasses.field(
         default=None, repr=False, compare=False, init=False

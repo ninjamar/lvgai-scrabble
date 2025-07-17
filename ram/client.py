@@ -1,8 +1,6 @@
 import argparse
 import asyncio
 import json
-import os
-
 import httpx
 import redis.asyncio as aredis
 import websockets

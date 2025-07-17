@@ -1,0 +1,20 @@
+flowchart LR
+    %% Components
+    C1["client.py
+Sends REST API to Server
+Publishes and Receives Pub/Sub
+Sends WebSocket to UI"]
+
+    U1["ui.py
+Receives WebSocket
+Renders board state"]
+
+    S1["server.py
+Handles REST API
+Updates game state"]
+
+    %% Connections
+    C1 -->|REST API| S1
+    C1 -.->|Pub/Sub Publish| C2["Other client.py"]
+    C2 -.->|Pub/Sub Notify| C1
+    C1 -->|WebSocket| U1

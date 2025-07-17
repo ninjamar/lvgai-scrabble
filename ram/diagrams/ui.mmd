@@ -1,0 +1,23 @@
+flowchart TD
+    Start["Start Program (__main__)"]
+    Connect["Connect to WebSocket"]
+    Success["Connection successful"]
+    Receive["Receive message from WebSocket"]
+    ParseJSON["Pparse message as JSON"]
+    ValidBoard["Is board data valid?"]
+    Clear["Clear terminal"]
+    PrintBoard["Call print_board(board)"]
+    Invalid["Invalid board data received"]
+    Continue["Wait for next message"]
+    Error["WebSocket connection error"]
+
+    Start --> Init --> Connect
+    Connect -->|Success| Success
+    Success --> Receive
+    Receive --> ParseJSON
+    ParseJSON -->|Success| ValidBoard
+    ValidBoard -->|Yes| Clear --> PrintBoard --> Continue
+    ValidBoard -->|No| Invalid --> Continue
+    Continue --> Receive
+    Connect -->|Fail| Error
+    Error -->|Retry| Connect

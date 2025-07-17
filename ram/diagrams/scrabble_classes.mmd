@@ -1,0 +1,62 @@
+classDiagram
+    class Board{
+        players: list[Players]
+        tile_bag: list[Tile]
+        word_list: WordList
+        board: list
+        turn: int
+        is_first_move: bool
+        current_player: Player
+        is_game_over: bool
+        consecutive_passes: int
+        \__post_init__()
+        initialize()
+        make_move()
+        next_turn()
+        is_contigous()
+        touches_existing_tile()
+        extract_words()
+        _scan()
+        to_save_dict()
+        from_save_dict()
+        serialize()
+        save_to_redis()
+        load_from_redis()
+        score_word()
+        check_game_over()
+        do_game_over()
+        finalize_scores()
+    }
+    Board *-- Player : Board.player
+    class Player{
+        word_bank: list[TileBank]
+        score: int
+    }
+    Player *-- TileBank: Player.word_bank
+    class TileBank{
+        hand: list[Tiles]
+        get_new_hand()
+        remove_tiles()
+        \__contains__()
+    }
+    TileBank *-- Tile: TileBank.hand
+    Board *-- Tile: Board.tile_bag
+    Board *-- Tile : Board.board
+    class Tile{
+        letter: str
+        points: int
+        multiplier: int
+        x: int
+        y: int
+        is_blank: bool
+        \__eq__()
+        \__hash__()
+        from_another()
+    }
+    Board *-- WordList: Board.word_list
+    class WordList{
+        word_list: set(str)
+        :load_word_list()
+        is_valid_word()
+    }
+

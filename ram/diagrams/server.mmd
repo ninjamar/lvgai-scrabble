@@ -1,0 +1,24 @@
+flowchart TD
+    Start["Start FastAPI (server.py)"]
+    WaitRequests["Wait for API calls"]
+
+    Start --> WaitRequests
+
+    subgraph Endpoints ["API Endpoints"]
+        StartEndpoint["POST /start"]
+        MakeMoveEndpoint["POST /make_move"]
+        StateEndpoint["GET /state"]
+    end
+
+    WaitRequests --> StartEndpoint
+    WaitRequests --> MakeMoveEndpoint
+    WaitRequests --> StateEndpoint
+
+    StartEndpoint --> GameLogicInit["Board.initialize()"]
+    GameLogicInit --> SaveToRedis["Save board state to Redis"]
+
+    MakeMoveEndpoint --> LoadFromRedis1["Load board state from Redis"]
+    LoadFromRedis1 --> ApplyMove["Call Board.make_move()"]
+    ApplyMove --> SaveToRedis
+
+    StateEndpoint --> LoadFromRedis2["Load board state from Redis"]

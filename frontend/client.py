@@ -1,11 +1,16 @@
 import argparse
 import asyncio
 import json
+import os
+from io import StringIO
+
 import httpx
 import redis.asyncio as aredis
 import websockets
+from dotenv import load_dotenv
 from rich import print
 
+from .render import write_board
 
 """
 This file implements the user client.
@@ -17,6 +22,8 @@ Usage:
 """
 
 
+load_dotenv()
+
 rd = aredis.Redis(host="ai.thewcl.com", port=6379, db=4, password="atmega328")
 REDIS_KEY = "scrabble:game_state"
 ROOT_PATH = "."
@@ -25,38 +32,42 @@ WS_BASE_URL = "ws://ai.thewcl.com:8708"
 BASE_URL = "http://localhost:8000"
 PUB_SUB_KEY = "scrabble:pubsub"
 
-def get_format_for_multiplier(multiplier):
+OPENAI_PROXY_URL = "http://ai.thewcl.com:6502"
+OPENAI_PROXY_AUTH = os.environ["OPENAI_PROXY_AUTH"]
 
-    wrap_tag = lambda tag, text: f"[{tag}]{text}[/{tag}]"
-    match multiplier:
-        case "DLS":
-            #8cb7d2
-            return wrap_tag("#8cb7d2", "!")
-        case "TLS":
-            #057ec3
-            return wrap_tag("#057ec3", "@")
-        case "DWS":
-            #dd8194
-            return wrap_tag("#dd8194", "#")
-        case "TWS":
-            #d03040
-            return wrap_tag("#d03040", "$")
+SYSTEM_PROMPT = """
+You are an AI Scrabble player.
 
-def print_board(board):
-    print("   " + " ".join(f"{i:2}" for i in range(len(board[0]))))
-    print("  +" + "---" * len(board[0]) + "+")
-    for y, row in enumerate(board):
-        line = f"{y:2}|"
-        for cell in row:
-            if cell[2] != 0 and not cell[1]: # cell[2] = board multiplier, cell[1] = is_blank
-                letter = get_format_for_multiplier(cell[2])
-            else:
-                letter = cell[0] if cell[0] else "."
-            
-            line += f" {letter} "
-        line += "|"
-        print(line)
-    print("  +" + "---" * len(board[0]) + "+")
+Your task: Given the current board and your hand, choose the highest scoring legal move for your turn, following standard Scrabble rules.
+
+**Input Details:**
+- **Hand:** A string of 7 tiles, separated by spaces. If a tile is an underscore ("_"), it is a blank tile that can represent any letter.
+- **Board:** A 15x15 grid, printed with axes labeled 0–14. Symbols:
+    - Uppercase letters: placed tiles
+    - . (dot): empty square
+    - ! : double letter score (DLS)
+    - @ : triple letter score (TLS)
+    - # : double word score (DWS)
+    - $ : triple word score (TWS)
+
+**Rules and Requirements:**
+- Use only tiles from your hand (including blanks).
+- If you use one or more blanks, specify each blank’s position in your word using 1-based indexing: the first letter is position 1, the second is 2, etc.
+- Your move must be a legal Scrabble play: the word must connect to existing tiles (except for the first move), use only valid words according to a standard Scrabble dictionary, and conform to all standard Scrabble rules.
+- Always play a word if any valid move exists. If there are no legal moves with your hand, respond with the following JSON:  
+  `{ "word": null, "start": null, "direction": null, "blanks": [] }`
+- Output must be a single, valid JSON object and nothing else. Do not include comments, explanations, or extra text.
+
+**Output Format:**
+
+```json
+{
+  "word": "<WORD IN UPPERCASE>",
+  "start": [x, y],  // x is the column (0–14), y is the row (0–14)
+  "direction": "h" or "v",  // "h" for left-to-right (horizontal), "v" for top-to-bottom (vertical)
+  "blanks": [positions]     // List of 1-based positions in the word that use a blank tile, or [] if none
+}
+"""
 
 
 def ensure_input(prompt: str, allowed: list, t: type = str):
@@ -94,7 +105,32 @@ async def get_state(client: httpx.AsyncClient):
     return response.json()
 
 
-async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
+async def get_ai(client: httpx.AsyncClient, board, hand_data):
+
+    # Write board to string
+    stream = StringIO()
+    write_board(board, color=False, output=stream)
+    data = stream.getvalue()
+
+    user_prompt = f"Hand: {hand_data}. Board: {data}"
+
+    response = await client.post(
+        f"{OPENAI_PROXY_URL}/chat",
+        params={"json": True},
+        json={
+            "model": "gpt-4.1-nano",
+            "system_prompt": SYSTEM_PROMPT,
+            "user_prompt": user_prompt,
+        },
+        headers={"Authorization": f"Bearer {OPENAI_PROXY_AUTH}"},
+    )
+    return json.loads(response.json()["output"][0]["content"][0]["text"])
+
+
+async def handle_board_state(
+    ws, client: httpx.AsyncClient, i_am_playing: int, is_ai: bool
+):
+
     # Fetch the current board state
     state = await get_state(client)
     # print("DEBUG", state)
@@ -102,8 +138,6 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
     if state.get("detail") is not None:
         print("Game has not been started.")
         exit()
-
-    # print_board(state["board"])
 
     # Show current scores
     for idx, player in enumerate(state["players"]):
@@ -129,85 +163,133 @@ async def handle_board_state(ws, client: httpx.AsyncClient, i_am_playing: int):
         hand_letters = " ".join(
             "_" if tile[1] else tile[0].upper() for tile in hand_data
         )
+
         print(f"Your tiles: {hand_letters}")
 
-        # Number of blanks in hand
-        num_blanks = sum(1 for tile in hand_data if tile[1])
+        if is_ai:
+            # Get AI move suggestion
+            ai_response = await get_ai(client, state["board"], hand_letters)
+            print("[AI] Response:", ai_response)
 
-        while True:  # Retry until a move succeeds
-            # Prompt for move details
-            word = input("Enter the word to place: ").strip().upper()
-
-            if word:
-
-                x = int(input("Start x (0-14): "))
-                y = int(input("Start y (0-14): "))
-                direction = input("Direction: (h)orizontal/(v)ertical: ").strip().lower()
-
-                if num_blanks == 0:
-                    # Build locations list
-                    locations = []
-                    for i, letter in enumerate(word):
-                        tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                        locations.append(
-                            {"letter": letter, "x": tx, "y": ty, "is_blank": False}
-                        )
-                else:
-                    # Prompt for which letters in the word use blanks
-                    # Allow for multiple blanks
-                    blank_positions = set()
-                    blank_map = {}  # position -> letter
-                    remaining_blanks = num_blanks
-
-                    print(
-                        f"You have {num_blanks} blank tile{'s' if num_blanks > 1 else ''}."
-                    )
-                    print("If you use any blank(s), specify their position in your word.")
-
-                    while remaining_blanks > 0:
-                        use_blank = (
-                            input(f"Do you want to use a blank tile? (y/n): ")
-                            .strip()
-                            .lower()
-                        )
-                        if use_blank != "y":
-                            break
-                        pos = int(
-                            input(
-                                "Which position in the word should be blank? (1 = first letter, etc): "
-                            )
-                        )
-                        if pos < 1 or pos > len(word):
-                            print("Invalid position, try again.")
-                            continue
-                        if (pos - 1) in blank_positions:
-                            print("You already marked that letter as blank.")
-                            continue
-                        blank_positions.add(pos - 1)
-                        blank_map[pos - 1] = word[pos - 1]
-                        remaining_blanks -= 1
-
-                    # Now build locations, marking blanks
-                    locations = []
-                    for i, letter in enumerate(word):
-                        tx, ty = (x + i, y) if direction == "h" else (x, y + i)
-                        is_blank = i in blank_positions
-                        locations.append(
-                            {"letter": letter, "x": tx, "y": ty, "is_blank": is_blank}
-                        )
-            else:
+            # Default to passing if the AI gives no move or word is null
+            if not ai_response or ai_response.get("word") is None:
+                print("[AI] No valid moves. Passing turn.")
                 locations = []
+            else:
+                word = ai_response["word"]
+                start_x, start_y = ai_response["start"]
+                direction = ai_response["direction"]
+                blanks = ai_response["blanks"]
 
-            # print("DEBUG", locations)
-            # Send move to API
+                # Set increments for direction
+                dx, dy = (1, 0) if direction == "h" else (0, 1)
+
+                # Build move locations
+                locations = []
+                for i, letter in enumerate(word):
+                    x = start_x + dx * i
+                    y = start_y + dy * i
+                    # Blanks is a list of 1-based positions
+                    is_blank = (i + 1) in blanks
+                    locations.append(
+                        {"letter": letter, "x": x, "y": y, "is_blank": is_blank}
+                    )
+
+            # Send the move to the backend
             response = await make_move(client, locations, int(i_am_playing))
             print(response["message"])
-
-            if response.get("success", False):
+            if response.get("success"):
                 print("Move accepted")
-                break  # Exit retry loop
             else:
-                print("Invalid move. Try again.")
+                print("Invalid move from AI.")
+        else:
+
+            # Number of blanks in hand
+            num_blanks = sum(1 for tile in hand_data if tile[1])
+
+            while True:  # Retry until a move succeeds
+                # Prompt for move details
+                word = input("Enter the word to place: ").strip().upper()
+
+                if word:
+
+                    x = int(input("Start x (0-14): "))
+                    y = int(input("Start y (0-14): "))
+                    direction = (
+                        input("Direction: (h)orizontal/(v)ertical: ").strip().lower()
+                    )
+
+                    if num_blanks == 0:
+                        # Build locations list
+                        locations = []
+                        for i, letter in enumerate(word):
+                            tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+                            locations.append(
+                                {"letter": letter, "x": tx, "y": ty, "is_blank": False}
+                            )
+                    else:
+                        # Prompt for which letters in the word use blanks
+                        # Allow for multiple blanks
+                        blank_positions = set()
+                        blank_map = {}  # position -> letter
+                        remaining_blanks = num_blanks
+
+                        print(
+                            f"You have {num_blanks} blank tile{'s' if num_blanks > 1 else ''}."
+                        )
+                        print(
+                            "If you use any blank(s), specify their position in your word."
+                        )
+
+                        while remaining_blanks > 0:
+                            use_blank = (
+                                input(f"Do you want to use a blank tile? (y/n): ")
+                                .strip()
+                                .lower()
+                            )
+                            if use_blank != "y":
+                                break
+                            pos = int(
+                                input(
+                                    "Which position in the word should be blank? (1 = first letter, etc): "
+                                )
+                            )
+                            if pos < 1 or pos > len(word):
+                                print("Invalid position, try again.")
+                                continue
+                            if (pos - 1) in blank_positions:
+                                print("You already marked that letter as blank.")
+                                continue
+                            blank_positions.add(pos - 1)
+                            blank_map[pos - 1] = word[pos - 1]
+                            remaining_blanks -= 1
+
+                        # Now build locations, marking blanks
+                        locations = []
+                        for i, letter in enumerate(word):
+                            tx, ty = (x + i, y) if direction == "h" else (x, y + i)
+                            is_blank = i in blank_positions
+                            locations.append(
+                                {
+                                    "letter": letter,
+                                    "x": tx,
+                                    "y": ty,
+                                    "is_blank": is_blank,
+                                }
+                            )
+                else:
+                    locations = []
+
+                # print("DEBUG", locations)
+                # Send move to API
+                response = await make_move(client, locations, int(i_am_playing))
+                print(response["message"])
+
+                if response.get("success", False):
+                    print("Move accepted")
+                    break  # Exit retry loop
+                else:
+                    print("Invalid move. Try again.")
 
         # Notify others via websocket and Redis
         # await send_to_ws(ws, state)
@@ -223,21 +305,25 @@ async def send_state(ws, client):
     state = await get_state(client)
     await send_to_ws(ws, state)
 
+
 async def listen_for_updates(
-    ws: websockets.ClientConnection, client: httpx.AsyncClient, i_am_playing: int
+    ws: websockets.ClientConnection,
+    client: httpx.AsyncClient,
+    i_am_playing: int,
+    is_ai: bool,
 ):
     pubsub = rd.pubsub()
     await pubsub.subscribe(PUB_SUB_KEY)
-    
+
     await send_state(ws, client)
     try:
-        result = await handle_board_state(ws, client, i_am_playing)
+        result = await handle_board_state(ws, client, i_am_playing, is_ai)
 
         print("Waiting for other player...")
 
         async for message in pubsub.listen():
             if message["type"] == "message":
-                result = await handle_board_state(ws, client, i_am_playing)
+                result = await handle_board_state(ws, client, i_am_playing, is_ai)
                 if result:
                     return
                 print("Waiting for other player...")
@@ -261,7 +347,7 @@ async def main(args):
                 if args.reset:
                     await start_game(client, args.reset)
                     return
-                await listen_for_updates(ws, client, args.player)
+                await listen_for_updates(ws, client, args.player, args.ai)
 
         except websockets.ConnectionClosedError:
             print("Websocket connection error. Retrying in 500ms")
@@ -286,5 +372,14 @@ if __name__ == "__main__":
         help="Reset the current game with NUM_PLAYERS (2-4)",
     )
 
+    # Not mutually exclusives
+    parser.add_argument(
+        "--ai",
+        action="store_true",
+        help="Play the current player as AI",
+    )
+
     args = parser.parse_args()
+    if args.player and args.player is None:
+        parser.error("--ai requires player to be specified")
     asyncio.run(main(args))

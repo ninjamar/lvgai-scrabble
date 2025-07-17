@@ -1,27 +1,20 @@
-flowchart TD
-    Start["Start client.py"]
-    ParseArgs["Parse command-line arguments (--player or --reset)"]
-    ResetGame{"Is --reset passed?"}
-    StartGame["POST /start to FastAPI"]
-    PlayerMode{"Is --player passed?"}
-    Connect["Connect to WebSocket (for updates)"]
-    FetchState["GET /state to fetch board"]
-    RenderBoard["Render board and scores"]
-    IsTurn{"Is it my turn?"}
-    PlayMove["Prompt user for move and POST /make_move"]
-    WaitUpdate["Wait for other players (Pub/Sub)"]
-    GameOver{"Is game over?"}
-    PrintFinal["Print final scores and exit"]
-
-    Start --> ParseArgs
-    ParseArgs --> ResetGame
-    ResetGame -->|Yes| StartGame --> PrintFinal
-    ResetGame -->|No| PlayerMode
-    PlayerMode -->|Yes| Connect --> FetchState
-    FetchState --> RenderBoard
-    RenderBoard --> GameOver
-    GameOver -->|Yes| PrintFinal
-    GameOver -->|No| IsTurn
-    IsTurn -->|Yes| PlayMove --> WaitUpdate
-    IsTurn -->|No| WaitUpdate
+---
+config:
+  layout: dagre
+---
+flowchart LR
+    Start["Start client.py"] --> ParseArgs["Parse command-line arguments (--player or --reset)"]
+    ParseArgs --> ResetGame{"Is --reset passed?"}
+    ResetGame -- Yes --> StartGame["POST /start to FastAPI"]
+    StartGame --> PrintFinal["Print final scores and exit"]
+    ResetGame -- No --> PlayerMode{"Is --player passed?"}
+    PlayerMode -- Yes --> Connect["Connect to WebSocket (for updates)"]
+    Connect --> FetchState["GET /state to fetch board"]
+    FetchState --> RenderBoard["Render board and scores"]
+    RenderBoard --> GameOver{"Is game over?"}
+    GameOver -- Yes --> PrintFinal
+    GameOver -- No --> IsTurn{"Is it my turn?"}
+    IsTurn -- Yes --> PlayMove["Prompt user for move and POST /make_move"]
+    PlayMove --> WaitUpdate["Wait for other players (Pub/Sub)"]
+    IsTurn -- No --> WaitUpdate
     WaitUpdate --> FetchState

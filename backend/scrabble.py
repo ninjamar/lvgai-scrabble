@@ -209,16 +209,15 @@ class TileBank:
                     del self.hand[i]
                     found = True
                     break
-                elif (
-                    hand_tile.letter == tile.letter
-                    and not tile.is_blank
-                ):
+                elif hand_tile.letter == tile.letter and not tile.is_blank:
                     del self.hand[i]
                     found = True
                     break  # Remove only one instance per tile
-            
+
             if not found:
-                raise ValueError(f"Unable to remove tile {tile} because it was not in the hand")
+                raise ValueError(
+                    f"Unable to remove tile {tile} because it was not in the hand"
+                )
 
     def __contains__(self, item):
         for hand_tile in self.hand:
@@ -250,7 +249,7 @@ class Board:
     )
 
     turn: int = 0
-    is_first_move: bool = True # Needed to check for first move
+    is_first_move: bool = True  # Needed to check for first move
     current_player: Player = None
 
     is_game_over: bool = False
@@ -286,9 +285,9 @@ class Board:
 
             self.next_turn()
 
-            if self.consecutive_passes >= len(self.players) * 2: # TODO: Magic number
+            if self.consecutive_passes >= len(self.players) * 2:  # TODO: Magic number
                 self.do_game_over()
-            
+
             if was_first_move:
                 self.is_first_move = True
             return True
@@ -336,7 +335,9 @@ class Board:
         if not self.is_contiguous(move):
             raise ValueError("Move is not contiguous")
 
-        if not self.is_first_move and not self.touches_existing_tile(move, is_first_turn=False):
+        if not self.is_first_move and not self.touches_existing_tile(
+            move, is_first_turn=False
+        ):
             raise ValueError("Move must touch an existing tile")
 
         # 1 – lay tiles on a temporary board
@@ -497,7 +498,13 @@ class Board:
                 for player in self.players
             ],
             "tile_bag": [(t.letter, t.is_blank) for t in self.tile_bag],
-            "board": [[(t.letter, t.is_blank, BOARD_MULTIPLIERS[y][x]) for x, t in enumerate(row)] for y, row in enumerate(self.board)],
+            "board": [
+                [
+                    (t.letter, t.is_blank, BOARD_MULTIPLIERS[y][x])
+                    for x, t in enumerate(row)
+                ]
+                for y, row in enumerate(self.board)
+            ],
             "turn": self.turn,
             "current_player": self.players.index(self.current_player),
             "is_game_over": self.is_game_over,
@@ -618,6 +625,7 @@ class Board:
                 for player in self.players
             )
             out_player.score += bonus
+
 
 if __name__ == "__main__":
     # Tests are located in ./test

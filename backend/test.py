@@ -1,5 +1,6 @@
 from .scrabble import *
 
+
 def test_scrabble():
     word_list = WordList.load_word_list()
     p1 = Player()

@@ -1,23 +1,19 @@
+---
+config:
+  layout: elk
+---
 flowchart TD
-    Start["Start Program (__main__)"]
-    Connect["Connect to WebSocket"]
-    Success["Connection successful"]
-    Receive["Receive message from WebSocket"]
-    ParseJSON["Pparse message as JSON"]
-    ValidBoard["Is board data valid?"]
-    Clear["Clear terminal"]
-    PrintBoard["Call print_board(board)"]
-    Invalid["Invalid board data received"]
-    Continue["Wait for next message"]
-    Error["WebSocket connection error"]
-
-    Start --> Init --> Connect
-    Connect -->|Success| Success
-    Success --> Receive
-    Receive --> ParseJSON
-    ParseJSON -->|Success| ValidBoard
-    ValidBoard -->|Yes| Clear --> PrintBoard --> Continue
-    ValidBoard -->|No| Invalid --> Continue
+    Start["Start Program (__main__)"] --> Init["Init"]
+    Init --> Connect["Connect to WebSocket"]
+    Connect -- Success --> Success["Connection successful"]
+    Success --> Receive["Receive message from WebSocket"]
+    Receive --> ParseJSON["Parse message as JSON"]
+    ParseJSON -- Success --> ValidBoard["Is board data valid?"]
+    ValidBoard -- Yes --> Clear["Clear terminal"]
+    Clear --> PrintBoard["Call print_board(board)"]
+    PrintBoard --> Continue["Wait for next message"]
+    ValidBoard -- No --> Invalid["Invalid board data received"]
+    Invalid --> Continue
     Continue --> Receive
-    Connect -->|Fail| Error
-    Error -->|Retry| Connect
+    Connect -- Fail --> Error["WebSocket connection error"]
+    Error -- Retry --> Connect

@@ -29,46 +29,92 @@ REDIS_KEY = "scrabble:game_state"
 ROOT_PATH = "."
 
 WS_BASE_URL = "ws://ai.thewcl.com:8708"
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 PUB_SUB_KEY = "scrabble:pubsub"
 
 OPENAI_PROXY_URL = "http://ai.thewcl.com:6502"
-OPENAI_PROXY_AUTH = os.environ["OPENAI_PROXY_AUTH"]
+OPENAI_PROXY_AUTH = os.getenv("OPENAI_PROXY_AUTH")
 
 SYSTEM_PROMPT = """
-You are playing Scrabble. You will receive the current board state and your hand of tiles as JSON input.
+You are an expert Scrabble player. For the response, please think STEP-BY-STEP. THINK. THINK. THINK.
+Your job: **choose the highest-scoring legal move** for the current position, using only the tiles in your hand, and following official English-language Scrabble rules.
 
-* The **"board"** key contains a 15x15 grid showing the current board. Letters represent tiles already played; symbols represent special squares:
+The game engine will send you JSON like:
 
-  * `$` = Triple Word Score (TWS)
-  * `#` = Double Word Score (DWS)
-  * `@` = Triple Letter Score (TLS)
-  * `!` = Double Letter Score (DLS)
-  * `.` = Empty square
-* The **"hand"** key contains the tiles you can play. Blanks (wildcards) are shown as underscores (`"_"`). You may use blanks to represent any letter.
-* If you use one or more blanks, you **must** specify each blank’s position in your word using 1-based indexing (e.g., if the blank is the second letter of the word, include `2` in the "blanks" array).
-* All words formed must be valid English words. The new word must be placed in a legal Scrabble position, connected to existing words (if the board is not empty).
+```json
+{
+  "hand": "Q U I _ E T S",          // seven tiles; "_" = blank
+  "board": "<15×15 pretty-printed grid>"
+}
+````
 
-**Your task:**
-Decide on the highest-scoring or strongest valid move using the current hand. Place the word on the board according to Scrabble rules, using at least one letter from your hand. Output your move as a JSON object using this schema:
+---
+
+### Board legend
+
+`$` = TWS (Tripple Word Score) `#` = DWS (Double Word Score) `@` = TLS (Tripple Letter Score) `!` = DLS (Double Letter Score) `.` = empty square Upper-case letters = tiles already played
+
+---
+
+### **MANDATORY rules** (read carefully)
+
+1. **Tile budget** You may place **only the tiles that appear in `"hand"`**, each at most once.
+   • The letters you physically place must exactly match a multiset drawn from your hand (blanks may stand for any letter).
+   • **Do NOT invent extra copies of a letter you don’t have.**
+
+2. **Empty squares only** Place tiles **only** on empty squares (`.` `!` `@` `#` `$`).
+   **Never overwrite** an existing letter.
+
+3. **Using board letters** You may incorporate letters already on the board to extend or cross words, but **you do not place a new tile on their squares**.
+
+4. **Connectivity**
+   • First move must cover (7, 7).
+   • Subsequent moves must touch the existing word structure.
+
+5. **Blanks** If you use a blank (`"_"`), list its **1-based position(s)** in the `"blanks"` array.
+
+6. **Word validity** Every word formed must be in the standard English Scrabble lexicon.
+
+7. **Pass condition** If there is literally **no legal move** with your hand, output
+
+   ```json
+   {"word": null, "start": null, "direction": null, "blanks": []}
+   ```
+
+---
+
+### Output (one JSON object only)
 
 ```json
 {
   "word": "<WORD IN UPPERCASE>",
-  "start": [x, y],
-  "direction": "h" or "v",
-  "blanks": [positions]
+  "start": [x, y],          // x = column 0-14, y = row 0-14
+  "direction": "h" or "v",  // h = left→right, v = top→bottom
+  "blanks": [positions]     // 1-based indices of blanks, [] if none
 }
 ```
 
-* `"word"`: The word you will play, in uppercase.
-* `"start"`: The starting position (column, row) of your word (0-based indices).
-* `"direction"`: `"h"` for horizontal (left-to-right), `"v"` for vertical (top-to-bottom).
-* `"blanks"`: A list of positions (1-based index) in the word where you used a blank, or `[]` if no blanks.
+---
 
-**Only output the JSON object. Do not add any extra text or explanation.**
+#### Worked legality example
 
-Here is your input:
+Board already shows “WAG” at (7, 7)–(9, 7). Hand = `E R _`.
+Legal play “WAGER”, blank for second “E”:
+
+```json
+{
+  "word": "WAGER",
+  "start": [7, 7],
+  "direction": "h",
+  "blanks": [2]
+}
+```
+
+New tiles placed: (10, 7)=E, (11, 7)=R (two tiles = exactly what remains in hand).
+
+---
+
+**Return exactly one JSON object and nothing else.**
 """
 
 
@@ -123,7 +169,7 @@ async def get_ai(client: httpx.AsyncClient, board, hand_data):
         f"{OPENAI_PROXY_URL}/chat",
         params={"json": True},
         json={
-            "model": "gpt-4.1-nano",
+            "model": "gpt-4.1-mini",
             "system_prompt": SYSTEM_PROMPT,
             "user_prompt": json.dumps(user_prompt),
         },
@@ -163,6 +209,7 @@ async def create_locations_from_ai(client, board, hand_letters, i_am_playing):
                 {"letter": letter, "x": x, "y": y, "is_blank": is_blank}
             )
 
+    print(locations)
     # Send the move to the backend
     response = await make_move(client, locations, int(i_am_playing))
     # print(response["message"])

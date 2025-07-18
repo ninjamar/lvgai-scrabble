@@ -33,9 +33,11 @@
 [x] TODO: Add key for multipliers in UI
 [x] TODO: Fix websocket timeout error and reconnect on error
 [x] TODO: Architecture diagram
+[x] TODO: Add multiplier to AI
 [ ] TODO: Add AI support
 [ ] TODO: Player running on a different computer
 [ ] TODO: Redraw tile action
+[ ] TODO: Ask about EE
 """
 
 import copy

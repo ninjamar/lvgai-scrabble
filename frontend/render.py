@@ -21,7 +21,7 @@ def get_format_for_multiplier(multiplier, color=True):
     if color:
         return wrap_tag(item[0], item[1])
     else:
-        return item[0]
+        return item[1]
 
 
 def write_board(board, color=True, output=sys.stdout):

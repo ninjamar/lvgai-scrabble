@@ -44,11 +44,15 @@ The game engine will send you JSON like:
 ```json
 {
   "hand": "Q U I _ E T S",          // seven tiles; "_" = blank
-  "board": "<15×15 pretty-printed grid>"
+  "board": "<15×15 grid>"
 }
 ````
 
 ---
+### Board input format
+
+The board passed in is a 2-dimentional list representing the board of the scrabble game. Position (0,0) represents the top left, while (14,14) represents the bottom right.
+Each item in the board contains second items. The first, is the letter. If it is an empty string, it is a free tile. The second item is them modifier.
 
 ### Board legend
 
@@ -153,36 +157,37 @@ async def get_state(client: httpx.AsyncClient):
     return response.json()
 
 
-async def get_ai(client: httpx.AsyncClient, board, hand_data):
-
+async def get_ai(client: httpx.AsyncClient, board, hand_data, model):
     # Write board to string
-    stream = StringIO()
-    write_board(board, color=False, output=stream)
-    data = stream.getvalue()
+    # stream = StringIO()
+    # write_board(board, color=False, output=stream)
+    # data = stream.getvalue()
 
     user_prompt = {
         "hand": hand_data,
-        "board": data
+        "board": [[[val, mult] for (val, _, mult) in row] for row in board]
     }
-
     response = await client.post(
-        f"{OPENAI_PROXY_URL}/chat",
+        f"{OPENAI_PROXY_URL}/chat/thinking" if model[0] == 'o' else f"{OPENAI_PROXY_URL}/chat",
         params={"json": True},
         json={
-            "model": "gpt-4.1-mini",
+            "model": model,
             "system_prompt": SYSTEM_PROMPT,
             "user_prompt": json.dumps(user_prompt),
         },
-        headers={"Authorization": f"Bearer {OPENAI_PROXY_AUTH}"},
+        headers={"Authorization": f"Bearer {OPENAI_PROXY_AUTH}"}, timeout=120
     )
     data = response.json()
-    print(data)
-    return json.loads(data["output"][0]["content"][0]["text"])
+    
+    for item in data["output"]:
+        # print(item)
+        if "content" in item:
+            return json.loads(item["content"][0]["text"])
+    raise Exception("Invalid response from AI:", data)
 
-
-async def create_locations_from_ai(client, board, hand_letters, i_am_playing):
+async def create_locations_from_ai(client, board, hand_letters, i_am_playing, model):
     # Get AI move suggestion
-    ai_response = await get_ai(client, board, hand_letters)
+    ai_response = await get_ai(client, board, hand_letters, model)
     print("[AI] Response:", ai_response)
 
     # Default to passing if the AI gives no move or word is null
@@ -218,6 +223,7 @@ async def create_locations_from_ai(client, board, hand_letters, i_am_playing):
         print("Move accepted")
     else:
         print("Invalid move from AI.")
+        print("Error message:", response.get("message"))
 
     return locations
 
@@ -318,7 +324,7 @@ async def user_do_action(client, hand_data, state, i_am_playing):
     return locations
 
 async def handle_board_state(
-    ws, client: httpx.AsyncClient, i_am_playing: int, is_ai: bool
+    ws, client: httpx.AsyncClient, i_am_playing: int, is_ai: bool, model
 ):
 
     # Fetch the current board state
@@ -358,7 +364,7 @@ async def handle_board_state(
         
         while True:
             if is_ai:
-                locations = await create_locations_from_ai(client, state["board"], hand_letters, i_am_playing)
+                locations = await create_locations_from_ai(client, state["board"], hand_letters, i_am_playing, model)
             else:
                 locations = await user_do_action(client, hand_data, state, i_am_playing)
 
@@ -394,19 +400,20 @@ async def listen_for_updates(
     client: httpx.AsyncClient,
     i_am_playing: int,
     is_ai: bool,
+    model
 ):
     pubsub = rd.pubsub()
     await pubsub.subscribe(PUB_SUB_KEY)
 
     await send_state(ws, client)
     try:
-        result = await handle_board_state(ws, client, i_am_playing, is_ai)
+        result = await handle_board_state(ws, client, i_am_playing, is_ai, model)
 
         print("Waiting for other player...")
 
         async for message in pubsub.listen():
             if message["type"] == "message":
-                result = await handle_board_state(ws, client, i_am_playing, is_ai)
+                result = await handle_board_state(ws, client, i_am_playing, is_ai, model)
                 if result:
                     return
                 print("Waiting for other player...")
@@ -430,7 +437,7 @@ async def main(args):
                 if args.reset:
                     await start_game(client, args.reset)
                     return
-                await listen_for_updates(ws, client, args.player, args.ai)
+                await listen_for_updates(ws, client, args.player, args.ai is not None, args.ai)
 
         except websockets.ConnectionClosedError:
             print("Websocket connection error. Retrying in 500ms")
@@ -458,11 +465,12 @@ if __name__ == "__main__":
     # Not mutually exclusives
     parser.add_argument(
         "--ai",
-        action="store_true",
+        choices=["gpt-4.1-nano", "gpt-4.1-mini", "o3-mini", "o4-mini"],
         help="Play the current player as AI",
+        default=None
     )
 
     args = parser.parse_args()
-    if args.player and args.player is None:
+    if args.ai and args.player is None:
         parser.error("--ai requires player to be specified")
     asyncio.run(main(args))
